@@ -1,0 +1,1231 @@
+import React, { useState, useEffect, useRef } from "react";
+import { createRoot } from "react-dom/client";
+import {
+  blank,
+  sourceEdit,
+  timing,
+  split,
+  merge,
+  translated,
+  stamp,
+  type Project,
+  type Caption,
+} from "../shared/model";
+import type { Bridge, Job, Settings } from "../shared/ipc";
+import "./style.css";
+declare global {
+  interface Window {
+    studio: Bridge;
+  }
+}
+const api = window.studio;
+function App() {
+  const [p, setP] = useState<Project>(blank),
+    [file, setFile] = useState<string>(),
+    [selected, select] = useState(""),
+    [time, setTime] = useState(0),
+    [playing, setPlaying] = useState(false),
+    [url, setUrl] = useState(""),
+    [peaks, setPeaks] = useState<number[]>([]),
+    [jobs, setJobs] = useState<Job[]>([]),
+    [error, setError] = useState(""),
+    [notice, setNotice] = useState("Ready when you are"),
+    [panel, setPanel] = useState<"none" | "download" | "settings">("none"),
+    [settings, setSettings] = useState<Settings>(),
+    [videoUrl, setVideoUrl] = useState(""),
+    [metadata, setMetadata] = useState<{
+      title: string;
+      duration: number;
+      uploader: string;
+    }>(),
+    [zoom, setZoom] = useState(1),
+    [filter, setFilter] = useState("all"),
+    [historyVersion, setHistoryVersion] = useState(0),
+    [saved, setSaved] = useState(""),
+    [recovery, setRecovery] = useState<Project | null>(null),
+    [initialized, setInitialized] = useState(false);
+  const current = useRef(p),
+    video = useRef<HTMLVideoElement>(null),
+    past = useRef<Project[]>([]),
+    future = useRef<Project[]>([]),
+    canvas = useRef<HTMLCanvasElement>(null),
+    latestWave = useRef(""),
+    pendingRecovery = useRef<Project | null>(null),
+    drag = useRef<{
+      id: string;
+      mode: string;
+      x: number;
+      start: number;
+      end: number;
+      before: Project;
+    } | null>(null),
+    switching = useRef(false);
+  current.current = p;
+  pendingRecovery.current = recovery;
+  const duration = p.media?.duration || 30,
+    active = p.captions.find((c) => c.id === selected),
+    sorted = [...p.captions].sort((a, b) => a.start - b.start),
+    running = jobs.filter((j) => j.state === "running"),
+    busy = running.some((j) =>
+      [
+        "Transcription",
+        "Translation",
+        "Download video",
+        "Inspect video",
+        "Playback copy",
+      ].includes(j.kind),
+    );
+  function fail(e: unknown) {
+    setError(e instanceof Error ? e.message : String(e));
+  }
+  async function attempt<T>(fn: () => Promise<T>) {
+    try {
+      return await fn();
+    } catch (e) {
+      fail(e);
+    }
+  }
+  function commit(next: Project | ((p: Project) => Project), record = true) {
+    const prev = current.current,
+      n = typeof next === "function" ? next(prev) : next;
+    if (record) {
+      past.current.push(prev);
+      if (past.current.length > 100) past.current.shift();
+      future.current = [];
+    }
+    current.current = n;
+    setSaved("Unsaved changes");
+    setP(n);
+    setHistoryVersion((v) => v + 1);
+  }
+  function undo() {
+    const prev = past.current.pop();
+    if (prev) {
+      future.current.push(current.current);
+      current.current = prev;
+      setP(prev);
+      setHistoryVersion((v) => v + 1);
+    }
+  }
+  function redo() {
+    const next = future.current.pop();
+    if (next) {
+      past.current.push(current.current);
+      current.current = next;
+      setP(next);
+      setHistoryVersion((v) => v + 1);
+    }
+  }
+  function edit(id: string, fn: (c: Caption) => Caption) {
+    commit((prev) => ({
+      ...prev,
+      captions: prev.captions.map((c) => (c.id === id ? fn(c) : c)),
+    }));
+  }
+  function seek(t: number) {
+    if (video.current) {
+      video.current.currentTime = Math.max(0, Math.min(duration, t));
+      setTime(video.current.currentTime);
+    }
+  }
+  function toggle() {
+    if (!video.current || !videoUrl) return;
+    if (video.current.paused) void video.current.play().catch(fail);
+    else video.current.pause();
+  }
+  function step(n: number) {
+    video.current?.pause();
+    seek(time + n / (p.media?.fps || 30));
+  }
+  function add() {
+    const start = Math.min(time, Math.max(0, duration - 0.1)),
+      c: Caption = {
+        id: crypto.randomUUID(),
+        start,
+        end: Math.min(duration, start + 2),
+        source: "",
+        target: "",
+        status: "empty",
+      };
+    commit((prev) => ({ ...prev, captions: [...prev.captions, c] }));
+    select(c.id);
+  }
+  function splitSelected() {
+    if (!active) return;
+    try {
+      const pair = split(active, time, crypto.randomUUID());
+      commit((prev) => ({
+        ...prev,
+        captions: prev.captions.flatMap((c) =>
+          c.id === active.id ? pair : [c],
+        ),
+      }));
+    } catch (e) {
+      fail(e);
+    }
+  }
+  function mergeSelected() {
+    if (!active) return;
+    const next = sorted[sorted.findIndex((c) => c.id === selected) + 1];
+    if (!next) return;
+    commit((prev) => ({
+      ...prev,
+      captions: prev.captions
+        .filter((c) => c.id !== next.id)
+        .map((c) => (c.id === active.id ? merge(c, next) : c)),
+    }));
+  }
+  async function load(next: Project, path?: string) {
+    setRecovery(null);
+    video.current?.pause();
+    if (video.current) video.current.currentTime = 0;
+    switching.current = true;
+    current.current = next;
+    setP(next);
+    setFile(path);
+    past.current = [];
+    future.current = [];
+    select(next.captions[0]?.id || "");
+    setPeaks([]);
+    setTime(0);
+    setVideoUrl("");
+    setSaved("");
+    if (next.media) {
+      await attempt(async () => {
+        setVideoUrl(
+          await api.call("url", next.media!.previewPath || next.media!.path),
+        );
+        latestWave.current = await api.call("wave", {
+          projectId: next.id,
+          path: next.media!.path,
+          duration: next.media!.duration,
+        });
+      });
+    }
+    switching.current = false;
+  }
+  async function openVideo() {
+    const path = await api.call("pick", "media");
+    if (path) {
+      await api.call("save", { project: current.current, autosave: true });
+      const next = blank();
+      await load(next);
+      await api.call("media", { projectId: next.id, path });
+    }
+  }
+  async function save(as = false) {
+    const path = await api.call("save", {
+      project: current.current,
+      path: as ? undefined : file,
+    });
+    if (path) {
+      setFile(path);
+      setNotice("Project saved");
+    }
+  }
+  useEffect(() => {
+    void attempt(async () => {
+      setSettings(await api.call("settings", undefined));
+      setRecovery(await api.call("recover", undefined));
+      setInitialized(true);
+    });
+    return api.onEvent((e) => {
+      if (e.type === "closing") {
+        void attempt(async () => {
+          if (
+            !pendingRecovery.current ||
+            current.current.media ||
+            current.current.captions.length
+          )
+            await api.call("save", {
+              project: current.current,
+              autosave: true,
+            });
+          await api.call("closed", undefined);
+        });
+        return;
+      }
+      if (e.type === "job") {
+        setJobs((prev) =>
+          [...prev.filter((j) => j.id !== e.job.id), e.job].slice(-30),
+        );
+        return;
+      }
+      if (e.projectId !== current.current.id) return;
+      if (e.type === "wave") setPeaks(e.peaks);
+      if (e.type === "media") {
+        const next = {
+          ...current.current,
+          name:
+            e.media.path
+              .split(/[\\/]/)
+              .pop()
+              ?.replace(/\.[^.]+$/, "") || "Video",
+          media: e.media,
+        };
+        commit(next);
+        void attempt(async () => {
+          setVideoUrl(
+            await api.call("url", e.media.previewPath || e.media.path),
+          );
+          latestWave.current = await api.call("wave", {
+            projectId: e.projectId,
+            path: e.media.path,
+            duration: e.media.duration,
+          });
+        });
+      }
+      if (e.type === "captions") {
+        commit((prev) => ({
+          ...prev,
+          captions: [...prev.captions, ...e.captions].sort(
+            (a, b) => a.start - b.start,
+          ),
+        }));
+        setNotice(`${e.captions.length} captions added`);
+      }
+      if (
+        e.type === "translation" &&
+        e.targetLanguage === current.current.targetLanguage
+      )
+        commit((prev) => ({
+          ...prev,
+          captions: prev.captions.map((c) =>
+            c.id === e.id
+              ? translated(c, e.original, e.text, e.error, e.originalTarget)
+              : c,
+          ),
+        }));
+    });
+  }, []);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (switching.current || !initialized || recovery) return;
+      void api
+        .call("save", { project: p, autosave: true })
+        .then(() => setSaved("Autosaved"))
+        .catch(fail);
+    }, 700);
+    return () => clearTimeout(timer);
+  }, [p, initialized, recovery]);
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const input = (e.target as HTMLElement).matches("input,textarea,select");
+      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+        e.preventDefault();
+        void attempt(() => save(e.shiftKey));
+        return;
+      }
+      if (input) return;
+      if ((e.ctrlKey || e.metaKey) && e.key === "z") {
+        e.preventDefault();
+        e.shiftKey ? redo() : undo();
+      } else if ((e.ctrlKey || e.metaKey) && e.key === "y") {
+        e.preventDefault();
+        redo();
+      } else if (e.code === "Space") {
+        e.preventDefault();
+        toggle();
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        step(-1);
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        step(1);
+      } else if (e.key.toLowerCase() === "n") add();
+      else if (e.key.toLowerCase() === "s") splitSelected();
+      else if (e.key.toLowerCase() === "m") mergeSelected();
+      else if (e.key === "Delete" && selected)
+        commit((prev) => ({
+          ...prev,
+          captions: prev.captions.filter((c) => c.id !== selected),
+        }));
+      else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        const i = sorted.findIndex((c) => c.id === selected),
+          c =
+            sorted[
+              Math.max(
+                0,
+                Math.min(
+                  sorted.length - 1,
+                  i + (e.key === "ArrowDown" ? 1 : -1),
+                ),
+              )
+            ];
+        if (c) {
+          select(c.id);
+          seek(c.start);
+          document.getElementById(c.id)?.scrollIntoView({ block: "nearest" });
+        }
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  });
+  useEffect(() => {
+    const el = canvas.current;
+    if (!el) return;
+    const draw = () => {
+      el.width = el.clientWidth * devicePixelRatio;
+      el.height = el.clientHeight * devicePixelRatio;
+      const ctx = el.getContext("2d")!;
+      ctx.scale(devicePixelRatio, devicePixelRatio);
+      const w = el.clientWidth,
+        h = el.clientHeight;
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = "#4d9f93";
+      for (let x = 0; x < w; x += 2) {
+        const a = Math.floor((x / w) * peaks.length),
+          b = Math.max(a + 1, Math.floor(((x + 2) / w) * peaks.length));
+        let peak = 0;
+        for (let i = a; i < b; i++) peak = Math.max(peak, peaks[i] || 0);
+        const size = peak * (h - 8);
+        ctx.fillRect(x, (h - size) / 2, 1.5, Math.max(1, size));
+      }
+    };
+    draw();
+    const observer = new ResizeObserver(draw);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [peaks, zoom]);
+  function pointerDown(e: React.PointerEvent, id: string, mode: string) {
+    e.stopPropagation();
+    const c = p.captions.find((c) => c.id === id)!;
+    select(id);
+    drag.current = {
+      id,
+      mode,
+      x: e.clientX,
+      start: c.start,
+      end: c.end,
+      before: current.current,
+    };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }
+  function pointerMove(e: React.PointerEvent) {
+    const d = drag.current;
+    if (!d) return;
+    const width = e.currentTarget
+        .closest(".timeline-inner")!
+        .getBoundingClientRect().width,
+      delta = ((e.clientX - d.x) / width) * duration;
+    let start = d.start,
+      end = d.end;
+    if (d.mode === "move") {
+      start = Math.max(
+        0,
+        Math.min(duration - (d.end - d.start), d.start + delta),
+      );
+      end = start + d.end - d.start;
+    } else if (d.mode === "start")
+      start = Math.max(0, Math.min(end - 0.04, start + delta));
+    else end = Math.min(duration, Math.max(start + 0.04, end + delta));
+    commit(
+      (prev) => ({
+        ...prev,
+        captions: prev.captions.map((c) =>
+          c.id === d.id ? { ...c, start, end } : c,
+        ),
+      }),
+      false,
+    );
+  }
+  function pointerUp() {
+    const d = drag.current;
+    if (d) {
+      past.current.push(d.before);
+      future.current = [];
+      drag.current = null;
+      setHistoryVersion((v) => v + 1);
+    }
+  }
+  const shown = sorted.filter(
+      (c) => filter === "all" || c.status !== "reviewed",
+    ),
+    reviewed = p.captions.filter((c) => c.status === "reviewed").length,
+    currentCaption = sorted.find((c) => time >= c.start && time < c.end);
+  return (
+    <div className="app">
+      <header>
+        <div className="brand">
+          <b className="logo">≋</b>
+          <div>
+            Caption Studio<small>LOCAL-FIRST SUBTITLE WORKSPACE</small>
+          </div>
+        </div>
+        <div className="project-title">
+          {p.name}
+          <span>{saved || "Unsaved changes"}</span>
+        </div>
+        <button
+          onClick={() => setPanel(panel === "settings" ? "none" : "settings")}
+        >
+          ⚙ Settings
+        </button>
+        <button onClick={() => void attempt(() => save())}>
+          Save project <kbd>Ctrl S</kbd>
+        </button>
+        <button
+          className="primary"
+          disabled={!p.captions.length}
+          onClick={() =>
+            void attempt(async () => {
+              const source = await api.call("export", {
+                project: p,
+                track: "source",
+              });
+              if (source) {
+                await api.call("export", { project: p, track: "target" });
+                setNotice("Export finished");
+              }
+            })
+          }
+        >
+          Export SRT ↗
+        </button>
+      </header>
+      <nav>
+        <div className="workflow">
+          <span className="step active">
+            1 <b>Import</b>
+          </span>
+          <i>→</i>
+          <span className={p.media ? "step active" : "step"}>
+            2 <b>Transcribe</b>
+          </span>
+          <i>→</i>
+          <span className={p.captions.length ? "step active" : "step"}>
+            3 <b>Edit & translate</b>
+          </span>
+          <i>→</i>
+          <span className="step">
+            4 <b>Review & export</b>
+          </span>
+        </div>
+        <button disabled={busy} onClick={() => void attempt(openVideo)}>
+          ＋ Open video
+        </button>
+        <button
+          disabled={busy}
+          onClick={() => setPanel(panel === "download" ? "none" : "download")}
+        >
+          ↗ Video URL
+        </button>
+        <button
+          disabled={busy}
+          onClick={() =>
+            void attempt(async () => {
+              const r = await api.call("open", undefined);
+              if (r) {
+                await api.call("save", {
+                  project: current.current,
+                  autosave: true,
+                });
+                await load(r.project, r.path);
+              }
+            })
+          }
+        >
+          Open project
+        </button>
+      </nav>
+      {recovery && (
+        <div className="banner">
+          A previous autosave is available.
+          <button
+            disabled={busy}
+            onClick={() => {
+              void load(recovery);
+              setRecovery(null);
+            }}
+          >
+            Restore session
+          </button>
+          <button onClick={() => setRecovery(null)}>Dismiss</button>
+        </div>
+      )}
+      {error && (
+        <div className="banner error" role="alert">
+          {error}
+          {error.startsWith("Playback failed") && p.media && (
+            <button
+              disabled={busy}
+              onClick={() =>
+                void attempt(async () => {
+                  await api.call("compatible", p);
+                  setError("");
+                })
+              }
+            >
+              Create compatible preview
+            </button>
+          )}
+          <button onClick={() => setError("")}>Dismiss</button>
+        </div>
+      )}
+      {panel === "download" && (
+        <section className="panel">
+          <div>
+            <h3>Import from a video URL</h3>
+            <p>Preview a single video, then choose where to save it.</p>
+          </div>
+          <input
+            aria-label="Video URL"
+            placeholder="https://…"
+            value={url}
+            onChange={(e) => {
+              setUrl(e.target.value);
+              setMetadata(undefined);
+            }}
+          />
+          <button
+            onClick={() =>
+              void attempt(async () =>
+                setMetadata(await api.call("preview", url)),
+              )
+            }
+          >
+            Preview
+          </button>
+          {metadata && (
+            <>
+              <div className="metadata">
+                <b>{metadata.title}</b>
+                <small>
+                  {metadata.uploader} · {stamp(metadata.duration)}
+                </small>
+              </div>
+              <button
+                className="primary"
+                disabled={busy}
+                onClick={() =>
+                  void attempt(async () => {
+                    const previous = current.current,
+                      previousFile = file;
+                    await api.call("save", {
+                      project: previous,
+                      autosave: true,
+                    });
+                    const next = blank();
+                    await load(next);
+                    const job = await api.call("download", {
+                      url,
+                      projectId: next.id,
+                    });
+                    if (!job) await load(previous, previousFile);
+                    setPanel("none");
+                  })
+                }
+              >
+                Download & import
+              </button>
+            </>
+          )}
+        </section>
+      )}
+      {panel === "settings" && settings && (
+        <section className="settings panel">
+          <div>
+            <h3>Tools & translation</h3>
+            <p>
+              Local tools run in the background. API keys are encrypted with
+              Windows when saved.
+            </p>
+          </div>
+          {(
+            [
+              "ffmpeg",
+              "ffprobe",
+              "ytdlp",
+              "whisper",
+              "modelPath",
+              "endpoint",
+              "model",
+              "apiKey",
+            ] as const
+          ).map((key) => (
+            <label key={key}>
+              {
+                {
+                  ffmpeg: "FFmpeg executable",
+                  ffprobe: "FFprobe executable",
+                  ytdlp: "yt-dlp executable",
+                  whisper: "whisper.cpp executable",
+                  modelPath: "Whisper GGML model",
+                  endpoint: "API base URL (ending /v1)",
+                  model: "Translation model ID",
+                  apiKey: "API key",
+                }[key]
+              }
+              <div className="field">
+                <input
+                  type={key === "apiKey" ? "password" : "text"}
+                  value={settings[key]}
+                  onChange={(e) =>
+                    setSettings({ ...settings, [key]: e.target.value })
+                  }
+                />
+                {[
+                  "ffmpeg",
+                  "ffprobe",
+                  "ytdlp",
+                  "whisper",
+                  "modelPath",
+                ].includes(key) && (
+                  <button
+                    aria-label={"Browse " + key}
+                    onClick={() =>
+                      void attempt(async () => {
+                        const path = await api.call(
+                          "pick",
+                          key === "modelPath" ? "model" : "exe",
+                        );
+                        if (path) setSettings({ ...settings, [key]: path });
+                      })
+                    }
+                  >
+                    …
+                  </button>
+                )}
+              </div>
+            </label>
+          ))}
+          <button
+            className="primary"
+            onClick={() =>
+              void attempt(async () => {
+                await api.call("configure", settings);
+                setPanel("none");
+                setNotice("Settings saved");
+              })
+            }
+          >
+            Save settings
+          </button>
+        </section>
+      )}
+      <main>
+        <section className="preview">
+          <div className="section-head">
+            <h2>Video preview</h2>
+            <span className="pill">
+              {p.media ? `${p.media.fps.toFixed(2)} fps` : "NO MEDIA"}
+            </span>
+          </div>
+          <div className="screen">
+            {videoUrl ? (
+              <>
+                <video
+                  ref={video}
+                  src={videoUrl}
+                  onTimeUpdate={(e) => setTime(e.currentTarget.currentTime)}
+                  onPlay={() => setPlaying(true)}
+                  onPause={() => setPlaying(false)}
+                  onError={() =>
+                    setError(
+                      "Playback failed. Relink missing media, or create an H.264/AAC preview for an unsupported codec.",
+                    )
+                  }
+                  onClick={toggle}
+                />
+                <div className="subtitle">{currentCaption?.source}</div>
+              </>
+            ) : (
+              <div className="empty-video">
+                <div className="film">▷</div>
+                <h1>Your story, clearly told.</h1>
+                <p>Open a video to start shaping its subtitles.</p>
+                <button
+                  className="primary"
+                  disabled={busy}
+                  onClick={() => void attempt(openVideo)}
+                >
+                  Open local video
+                </button>
+                <small>MP4 · WebM · MOV · MKV</small>
+              </div>
+            )}
+          </div>
+          <div className="transport">
+            <button
+              aria-label="Previous frame"
+              disabled={!videoUrl}
+              onClick={() => step(-1)}
+            >
+              Ⅰ◁
+            </button>
+            <button
+              className="play"
+              aria-label={playing ? "Pause" : "Play"}
+              disabled={!videoUrl}
+              onClick={toggle}
+            >
+              {playing ? "Ⅱ" : "▶"}
+            </button>
+            <button
+              aria-label="Next frame"
+              disabled={!videoUrl}
+              onClick={() => step(1)}
+            >
+              ▷Ⅰ
+            </button>
+            <span className="time">
+              {stamp(time).replace(",", ".")}{" "}
+              <em>/ {stamp(duration).replace(",", ".")}</em>
+            </span>
+            <select
+              aria-label="Playback speed"
+              onChange={(e) => {
+                if (video.current) video.current.playbackRate = +e.target.value;
+              }}
+              defaultValue="1"
+            >
+              <option value="0.5">0.5×</option>
+              <option value="0.75">0.75×</option>
+              <option value="1">1×</option>
+              <option value="1.25">1.25×</option>
+              <option value="1.5">1.5×</option>
+            </select>
+          </div>
+          <input
+            className="seek"
+            aria-label="Seek video"
+            type="range"
+            min="0"
+            max={duration}
+            step="0.001"
+            value={time}
+            onChange={(e) => seek(+e.target.value)}
+          />
+          <div className="media-name">
+            {p.media?.path.split(/[\\/]/).pop() ||
+              "Media stays on your computer"}
+            {p.media ? (
+              <button
+                className="text-button"
+                disabled={busy}
+                onClick={() =>
+                  void attempt(async () => {
+                    const path = await api.call("pick", "media");
+                    if (path) {
+                      setError("");
+                      setPeaks([]);
+                      await api.call("media", { projectId: p.id, path });
+                    }
+                  })
+                }
+              >
+                Relink video
+              </button>
+            ) : (
+              <span>No upload required</span>
+            )}
+          </div>
+        </section>
+        <section className="captions">
+          <div className="section-head">
+            <h2>
+              Captions <span>{p.captions.length}</span>
+            </h2>
+            <div>
+              <select
+                aria-label="Caption filter"
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+              >
+                <option value="all">All captions</option>
+                <option value="review">Needs review</option>
+              </select>
+              <button
+                disabled={!p.media || busy}
+                onClick={() =>
+                  void attempt(async () => {
+                    await api.call("transcribe", p);
+                  })
+                }
+              >
+                ✧ Transcribe
+              </button>
+              <button
+                disabled={!p.captions.length || busy}
+                onClick={() =>
+                  void attempt(async () => {
+                    await api.call("translate", p);
+                  })
+                }
+              >
+                Translate →
+              </button>
+            </div>
+          </div>
+          <div className="track-head">
+            <span>TIME</span>
+            <label>
+              SOURCE{" "}
+              <input
+                aria-label="Source language"
+                title="Whisper language code, or auto"
+                value={p.language}
+                disabled={busy}
+                onChange={(e) => commit({ ...p, language: e.target.value })}
+              />
+            </label>
+            <label>
+              TRANSLATION{" "}
+              <input
+                aria-label="Target language"
+                value={p.targetLanguage}
+                disabled={busy}
+                onChange={(e) =>
+                  commit({
+                    ...p,
+                    targetLanguage: e.target.value,
+                    captions: p.captions.map((c) => ({
+                      ...c,
+                      status: c.target ? "stale" : "empty",
+                    })),
+                  })
+                }
+              />
+            </label>
+            <span>REVIEW</span>
+          </div>
+          <div className="caption-scroll">
+            {shown.length ? (
+              shown.map((c, i) => (
+                <div
+                  id={c.id}
+                  key={c.id}
+                  className={
+                    "caption-row " + (selected === c.id ? "selected" : "")
+                  }
+                  onClick={() => select(c.id)}
+                >
+                  <div className="cue-time">
+                    <button
+                      onClick={() => {
+                        select(c.id);
+                        seek(c.start);
+                      }}
+                    >
+                      {String(sorted.indexOf(c) + 1).padStart(2, "0")}
+                    </button>
+                    <input
+                      aria-label={"Start " + (i + 1)}
+                      type="number"
+                      step="0.01"
+                      value={Number(c.start.toFixed(3))}
+                      onChange={(e) => {
+                        try {
+                          edit(c.id, (v) =>
+                            timing(v, +e.target.value, v.end, duration),
+                          );
+                        } catch (err) {
+                          fail(err);
+                        }
+                      }}
+                    />
+                    <input
+                      aria-label={"End " + (i + 1)}
+                      type="number"
+                      step="0.01"
+                      value={Number(c.end.toFixed(3))}
+                      onChange={(e) => {
+                        try {
+                          edit(c.id, (v) =>
+                            timing(v, v.start, +e.target.value, duration),
+                          );
+                        } catch (err) {
+                          fail(err);
+                        }
+                      }}
+                    />
+                  </div>
+                  <textarea
+                    aria-label={"Source caption " + (i + 1)}
+                    placeholder="Type the spoken words…"
+                    value={c.source}
+                    onChange={(e) =>
+                      edit(c.id, (v) => sourceEdit(v, e.target.value))
+                    }
+                  />
+                  <div className="target-cell">
+                    <textarea
+                      aria-label={"Translation caption " + (i + 1)}
+                      placeholder="Translation appears here…"
+                      value={c.target}
+                      onChange={(e) =>
+                        edit(c.id, (v) => ({
+                          ...v,
+                          target: e.target.value,
+                          status: "draft",
+                          error: undefined,
+                        }))
+                      }
+                    />
+                    {c.error && <small className="failure">{c.error}</small>}
+                  </div>
+                  <button
+                    className={"review " + c.status}
+                    title={
+                      c.status === "stale"
+                        ? "Source changed — check the translation"
+                        : c.status
+                    }
+                    disabled={!c.target}
+                    onClick={() =>
+                      edit(c.id, (v) => ({
+                        ...v,
+                        status: v.status === "reviewed" ? "draft" : "reviewed",
+                        error: undefined,
+                      }))
+                    }
+                  >
+                    {c.status === "reviewed"
+                      ? "✓"
+                      : c.status === "stale"
+                        ? "↻"
+                        : c.status === "failed"
+                          ? "!"
+                          : "○"}
+                    <small>{c.status}</small>
+                  </button>
+                </div>
+              ))
+            ) : (
+              <div className="empty-captions">
+                <span>☷</span>
+                <h3>
+                  {p.captions.length
+                    ? "All captions reviewed"
+                    : "Every word has a place"}
+                </h3>
+                <p>Transcribe your video locally, or add your first caption.</p>
+                <button disabled={!p.media} onClick={add}>
+                  ＋ Add caption
+                </button>
+              </div>
+            )}
+          </div>
+          <div className="caption-footer">
+            <span>
+              {reviewed} / {p.captions.length} reviewed
+              {p.captions.some((c) => !c.target.trim()) &&
+                ` · ${p.captions.filter((c) => !c.target.trim()).length} untranslated`}
+            </span>
+            <button disabled={!p.media} onClick={add}>
+              ＋ Add caption <kbd>N</kbd>
+            </button>
+          </div>
+        </section>
+      </main>
+      <section className="timeline">
+        <div className="section-head">
+          <div className="timeline-tools">
+            <h2>Timeline</h2>
+            <button
+              disabled={!past.current.length}
+              onClick={undo}
+              title="Ctrl+Z"
+            >
+              ↶
+            </button>
+            <button
+              disabled={!future.current.length}
+              onClick={redo}
+              title="Ctrl+Shift+Z"
+            >
+              ↷
+            </button>
+            <span className="divider" />
+            <button disabled={!active} onClick={splitSelected}>
+              Split <kbd>S</kbd>
+            </button>
+            <button disabled={!active} onClick={mergeSelected}>
+              Merge next <kbd>M</kbd>
+            </button>
+            <button
+              disabled={!active}
+              onClick={() =>
+                commit((prev) => ({
+                  ...prev,
+                  captions: prev.captions.filter((c) => c.id !== selected),
+                }))
+              }
+            >
+              Delete
+            </button>
+          </div>
+          <label className="zoom">
+            −{" "}
+            <input
+              aria-label="Timeline zoom"
+              type="range"
+              min="1"
+              max="12"
+              step="0.25"
+              value={zoom}
+              onChange={(e) => setZoom(+e.target.value)}
+            />{" "}
+            ＋
+          </label>
+        </div>
+        <div className="timeline-scroll">
+          <div
+            className="timeline-inner"
+            style={{ width: `${zoom * 100}%` }}
+            onClick={(e) => {
+              if (!drag.current) {
+                const r = e.currentTarget.getBoundingClientRect();
+                seek(((e.clientX - r.left) / r.width) * duration);
+              }
+            }}
+          >
+            <div className="ruler">
+              {Array.from({ length: Math.ceil(10 * zoom) + 1 }, (_, i) => (
+                <span key={i} style={{ left: `${(i / (10 * zoom)) * 100}%` }}>
+                  {stamp((duration * i) / (10 * zoom)).slice(3, 8)}
+                </span>
+              ))}
+            </div>
+            <canvas ref={canvas} />
+            {!peaks.length && (
+              <div className="wave-label">
+                {p.media
+                  ? "Waveform will appear after audio analysis"
+                  : "Open a video to see its waveform"}
+              </div>
+            )}
+            <div className="lane source-lane">
+              {sorted.map((c) => (
+                <div
+                  role="button"
+                  tabIndex={0}
+                  aria-label={"Timeline caption " + c.source}
+                  key={c.id}
+                  className={"clip " + (selected === c.id ? "chosen" : "")}
+                  style={{
+                    left: `${(c.start / duration) * 100}%`,
+                    width: `${((c.end - c.start) / duration) * 100}%`,
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    select(c.id);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      select(c.id);
+                      seek(c.start);
+                    }
+                  }}
+                  onPointerDown={(e) => pointerDown(e, c.id, "move")}
+                  onPointerMove={pointerMove}
+                  onPointerUp={pointerUp}
+                  onPointerCancel={pointerUp}
+                >
+                  <span
+                    className="handle left"
+                    onPointerDown={(e) => pointerDown(e, c.id, "start")}
+                  />
+                  <span>{c.source || "New caption"}</span>
+                  <span
+                    className="handle right"
+                    onPointerDown={(e) => pointerDown(e, c.id, "end")}
+                  />
+                </div>
+              ))}
+            </div>
+            <div className="lane target-lane">
+              {sorted.map((c) => (
+                <div
+                  key={c.id}
+                  className={"clip target " + c.status}
+                  style={{
+                    left: `${(c.start / duration) * 100}%`,
+                    width: `${((c.end - c.start) / duration) * 100}%`,
+                  }}
+                >
+                  {c.target || "Untranslated"}
+                </div>
+              ))}
+            </div>
+            <div
+              className="playhead"
+              style={{ left: `${(time / duration) * 100}%` }}
+            >
+              <b>▼</b>
+            </div>
+          </div>
+        </div>
+        <div className="timeline-legend">
+          <span>
+            <i /> Source
+          </span>
+          <span>
+            <i /> Translation
+          </span>
+          <span>
+            Drag to move · Drag edges to trim · Click waveform to seek
+          </span>
+          <span>
+            Frame step <kbd>←</kbd> <kbd>→</kbd> · Play <kbd>Space</kbd>
+          </span>
+        </div>
+      </section>
+      <section className="tasks">
+        <div>
+          <b>Background tasks</b>
+          <span>
+            {running.length ? `${running.length} running` : "All quiet"}
+          </span>
+        </div>
+        <div className="task-list">
+          {jobs.length ? (
+            [
+              ...jobs.filter((j) => j.state === "running"),
+              ...jobs
+                .filter((j) => j.state !== "running")
+                .slice(-3)
+                .reverse(),
+            ].map((j) => (
+              <div className={"task " + j.state} key={j.id}>
+                <div>
+                  <b>{j.kind}</b>
+                  <small title={j.message}>{j.message}</small>
+                </div>
+                <progress max="100" value={j.progress} />
+                <span>
+                  {j.state === "running"
+                    ? Math.round(j.progress) + "%"
+                    : j.state}
+                </span>
+                {j.state === "running" && (
+                  <button onClick={() => void api.call("cancel", j.id)}>
+                    Cancel
+                  </button>
+                )}
+              </div>
+            ))
+          ) : (
+            <p>
+              Downloads, speech recognition and translation run here. Keep
+              editing while they work.
+            </p>
+          )}
+        </div>
+      </section>
+      <footer>
+        <span className="status-dot" />
+        {notice}
+        <span className="footer-right">
+          {file
+            ? "Project saved on disk"
+            : "Project recovery autosaves locally"}{" "}
+          · Caption Studio 0.1
+        </span>
+      </footer>
+    </div>
+  );
+}
+createRoot(document.getElementById("root")!).render(<App />);

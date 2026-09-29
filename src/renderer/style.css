@@ -252,21 +252,6 @@ main {
   margin: auto auto 14px;
   padding: 9px;
 }
-.empty-video h1 {
-  font-size: 21px;
-  font-weight: 500;
-}
-.empty-video p {
-  font-size: 12px;
-  color: #7f909c;
-  margin: 10px 0 20px;
-}
-.empty-video small {
-  display: block;
-  font-size: 9px;
-  letter-spacing: 2px;
-  margin-top: 14px;
-}
 .transport {
   display: flex;
   align-items: center;
@@ -330,12 +315,13 @@ main {
   align-items: center;
   gap: 9px;
 }
-.track-head input {
-  width: 76px;
+.track-head select {
+  width: 91px;
   font-size: 10px;
   padding: 3px;
   border: 0;
   background: #252e35;
+  color: #d5e2dc;
   letter-spacing: 0;
 }
 .caption-scroll {
@@ -472,9 +458,21 @@ main {
   gap: 7px;
   color: #8fa59f;
 }
+.zoom button {
+  min-width: 26px;
+  height: 25px;
+  padding: 0;
+}
 .zoom input {
-  width: 105px;
+  width: 132px;
   height: 3px;
+}
+.zoom output {
+  min-width: 39px;
+  text-align: right;
+  font:
+    11px Consolas,
+    monospace;
 }
 .timeline-scroll {
   overflow-x: auto;
@@ -485,6 +483,8 @@ main {
   position: relative;
   min-width: 100%;
   padding-top: 27px;
+  user-select: none;
+  -webkit-user-select: none;
 }
 .ruler {
   height: 27px;
@@ -503,10 +503,12 @@ main {
   padding: 5px 7px;
   border-left: 1px solid #35454c;
   height: 100%;
+  pointer-events: none;
 }
 canvas {
   height: 78px;
-  width: 100%;
+  position: sticky;
+  left: 0;
   display: block;
   background: #121d22;
   cursor: crosshair;
@@ -839,7 +841,7 @@ main {
   max-height: 138px;
   overflow: auto;
 }
-.track-head input:disabled {
+.track-head select:disabled {
   opacity: 0.5;
 }
 

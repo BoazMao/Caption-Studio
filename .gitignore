@@ -3,4 +3,6 @@ dist/
 release/
 .tools/
 *.log
-
+verification.png
+workflow-verification.png
+timeline-zoom-verification.png

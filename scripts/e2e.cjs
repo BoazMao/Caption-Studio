@@ -42,7 +42,7 @@ const root = path.resolve(__dirname, ".."),
     const page = await app.firstWindow();
     page.on("pageerror", (e) => console.error("PAGE ERROR", e));
     await page
-      .getByRole("heading", { name: "Your story, clearly told." })
+      .getByRole("button", { name: "Open local video", exact: true })
       .waitFor();
     await page.evaluate(
       async ({ ffmpeg, ffprobe }) => {
@@ -71,6 +71,42 @@ const root = path.resolve(__dirname, ".."),
         document.body.innerText.includes("Waveform") &&
         document.body.innerText.includes("done"),
     );
+    const sourceLanguage = page.getByLabel("Source language");
+    const targetLanguage = page.getByLabel("Target language");
+    assert.deepEqual(await sourceLanguage.locator("option").allTextContents(), [
+      "English",
+      "Chinese",
+    ]);
+    assert.deepEqual(await targetLanguage.locator("option").allTextContents(), [
+      "English",
+      "Chinese",
+    ]);
+    await sourceLanguage.selectOption("zh");
+    await sourceLanguage.selectOption("en");
+    await targetLanguage.selectOption("English");
+    await targetLanguage.selectOption("Chinese");
+    await page.getByLabel("Timeline zoom").fill("8");
+    assert.equal(await page.getByLabel("Zoom level").textContent(), "256×");
+    const zoomedTimeline = await page.evaluate(() => {
+      const scroll = document.querySelector(".timeline-scroll");
+      const canvas = scroll.querySelector("canvas");
+      const ruler = scroll.querySelector(".ruler span");
+      return {
+        canvasWidth: canvas.width,
+        viewportWidth: scroll.clientWidth,
+        timelineWidth: scroll.scrollWidth,
+        rulerSelection: getComputedStyle(ruler).userSelect,
+      };
+    });
+    assert.ok(
+      zoomedTimeline.timelineWidth > zoomedTimeline.viewportWidth * 200,
+    );
+    assert.ok(zoomedTimeline.canvasWidth <= zoomedTimeline.viewportWidth * 2);
+    assert.equal(zoomedTimeline.rulerSelection, "none");
+    await page.screenshot({
+      path: path.join(root, "timeline-zoom-verification.png"),
+    });
+    await page.getByLabel("Timeline zoom").fill("0");
     await page.getByRole("button", { name: "Play", exact: true }).click();
     await page.waitForFunction(
       () => document.querySelector("video").currentTime > 0.3,
@@ -86,6 +122,36 @@ const root = path.resolve(__dirname, ".."),
         Math.abs(document.querySelector("video").currentTime - (3 + 1 / 30)) <
         0.005,
     );
+    await page.getByLabel("Timeline zoom").fill("8");
+    await page.waitForFunction(() => {
+      const scroll = document.querySelector(".timeline-scroll");
+      const playhead = document
+        .querySelector(".playhead")
+        .getBoundingClientRect();
+      const viewport = scroll.getBoundingClientRect();
+      return (
+        scroll.scrollLeft > 0 &&
+        Math.abs(playhead.left - (viewport.left + viewport.width / 2)) <
+          viewport.width * 0.1
+      );
+    });
+    const centered = await page.evaluate(() => {
+      const scroll = document.querySelector(".timeline-scroll");
+      const playhead = document
+        .querySelector(".playhead")
+        .getBoundingClientRect();
+      const viewport = scroll.getBoundingClientRect();
+      return {
+        scrollLeft: scroll.scrollLeft,
+        distanceFromCenter: Math.abs(
+          playhead.left - (viewport.left + viewport.width / 2),
+        ),
+        viewportWidth: viewport.width,
+      };
+    });
+    assert.ok(centered.scrollLeft > 0);
+    assert.ok(centered.distanceFromCenter < centered.viewportWidth * 0.1);
+    await page.getByLabel("Timeline zoom").fill("0");
     await page
       .getByRole("button", { name: /Add caption/ })
       .first()

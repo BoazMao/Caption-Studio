@@ -38,8 +38,8 @@ export const blank = (): Project => ({
   id: crypto.randomUUID(),
   name: "Untitled project",
   media: null,
-  language: "auto",
-  targetLanguage: "Spanish",
+  language: "en",
+  targetLanguage: "Chinese",
   captions: [],
 });
 export function sourceEdit(c: Caption, source: string): Caption {

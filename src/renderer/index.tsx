@@ -19,6 +19,17 @@ declare global {
   }
 }
 const api = window.studio;
+const zoomSteps = [1, 2, 4, 8, 16, 32, 64, 128, 256];
+function rulerStep(seconds: number) {
+  const raw = Math.max(0.001, seconds);
+  const power = 10 ** Math.floor(Math.log10(raw));
+  return [1, 2, 5, 10].map((n) => n * power).find((n) => n >= raw)!;
+}
+function rulerLabel(seconds: number, step: number, duration: number) {
+  const value = stamp(seconds);
+  if (step < 1) return value.slice(3).replace(",", ".");
+  return duration >= 3600 ? value.slice(0, 8) : value.slice(3, 8);
+}
 function App() {
   const [p, setP] = useState<Project>(blank),
     [file, setFile] = useState<string>(),
@@ -49,6 +60,7 @@ function App() {
     past = useRef<Project[]>([]),
     future = useRef<Project[]>([]),
     canvas = useRef<HTMLCanvasElement>(null),
+    timelineScroll = useRef<HTMLDivElement>(null),
     latestWave = useRef(""),
     pendingRecovery = useRef<Project | null>(null),
     drag = useRef<{
@@ -63,6 +75,8 @@ function App() {
   current.current = p;
   pendingRecovery.current = recovery;
   const duration = p.media?.duration || 30,
+    tickStep = rulerStep(duration / zoom / 8),
+    tickCount = Math.floor(duration / tickStep) + 1,
     active = p.captions.find((c) => c.id === selected),
     sorted = [...p.captions].sort((a, b) => a.start - b.start),
     running = jobs.filter((j) => j.state === "running"),
@@ -176,6 +190,22 @@ function App() {
     }));
   }
   async function load(next: Project, path?: string) {
+    const sourceLanguage = ["zh", "Chinese"].includes(next.language)
+      ? "zh"
+      : "en";
+    const targetLanguage = ["en", "English"].includes(next.targetLanguage)
+      ? "English"
+      : "Chinese";
+    next = {
+      ...next,
+      language: sourceLanguage,
+      targetLanguage,
+      captions: next.captions.map((c) =>
+        targetLanguage !== next.targetLanguage && c.target
+          ? { ...c, status: "stale" }
+          : c,
+      ),
+    };
     setRecovery(null);
     video.current?.pause();
     if (video.current) video.current.currentTime = 0;
@@ -365,19 +395,30 @@ function App() {
   });
   useEffect(() => {
     const el = canvas.current;
-    if (!el) return;
+    const scroll = timelineScroll.current;
+    if (!el || !scroll) return;
     const draw = () => {
-      el.width = el.clientWidth * devicePixelRatio;
-      el.height = el.clientHeight * devicePixelRatio;
+      const w = scroll.clientWidth,
+        h = el.clientHeight,
+        scale = Math.min(devicePixelRatio, 2),
+        timelineWidth = scroll.scrollWidth;
+      el.style.width = `${w}px`;
+      el.width = Math.round(w * scale);
+      el.height = Math.round(h * scale);
       const ctx = el.getContext("2d")!;
-      ctx.scale(devicePixelRatio, devicePixelRatio);
-      const w = el.clientWidth,
-        h = el.clientHeight;
+      ctx.scale(scale, scale);
       ctx.clearRect(0, 0, w, h);
       ctx.fillStyle = "#4d9f93";
       for (let x = 0; x < w; x += 2) {
-        const a = Math.floor((x / w) * peaks.length),
-          b = Math.max(a + 1, Math.floor(((x + 2) / w) * peaks.length));
+        const a = Math.floor(
+            ((scroll.scrollLeft + x) / timelineWidth) * peaks.length,
+          ),
+          b = Math.max(
+            a + 1,
+            Math.floor(
+              ((scroll.scrollLeft + x + 2) / timelineWidth) * peaks.length,
+            ),
+          );
         let peak = 0;
         for (let i = a; i < b; i++) peak = Math.max(peak, peaks[i] || 0);
         const size = peak * (h - 8);
@@ -386,10 +427,23 @@ function App() {
     };
     draw();
     const observer = new ResizeObserver(draw);
-    observer.observe(el);
-    return () => observer.disconnect();
+    observer.observe(scroll);
+    scroll.addEventListener("scroll", draw, { passive: true });
+    return () => {
+      observer.disconnect();
+      scroll.removeEventListener("scroll", draw);
+    };
   }, [peaks, zoom]);
+  useEffect(() => {
+    const scroll = timelineScroll.current;
+    if (!scroll) return;
+    scroll.scrollLeft = Math.max(
+      0,
+      (time / duration) * scroll.scrollWidth - scroll.clientWidth / 2,
+    );
+  }, [zoom]);
   function pointerDown(e: React.PointerEvent, id: string, mode: string) {
+    e.preventDefault();
     e.stopPropagation();
     const c = p.captions.find((c) => c.id === id)!;
     select(id);
@@ -734,8 +788,6 @@ function App() {
             ) : (
               <div className="empty-video">
                 <div className="film">▷</div>
-                <h1>Your story, clearly told.</h1>
-                <p>Open a video to start shaping its subtitles.</p>
                 <button
                   className="primary"
                   disabled={busy}
@@ -743,7 +795,6 @@ function App() {
                 >
                   Open local video
                 </button>
-                <small>MP4 · WebM · MOV · MKV</small>
               </div>
             )}
           </div>
@@ -863,17 +914,19 @@ function App() {
             <span>TIME</span>
             <label>
               SOURCE{" "}
-              <input
+              <select
                 aria-label="Source language"
-                title="Whisper language code, or auto"
                 value={p.language}
                 disabled={busy}
                 onChange={(e) => commit({ ...p, language: e.target.value })}
-              />
+              >
+                <option value="en">English</option>
+                <option value="zh">Chinese</option>
+              </select>
             </label>
             <label>
               TRANSLATION{" "}
-              <input
+              <select
                 aria-label="Target language"
                 value={p.targetLanguage}
                 disabled={busy}
@@ -887,7 +940,10 @@ function App() {
                     })),
                   })
                 }
-              />
+              >
+                <option value="English">English</option>
+                <option value="Chinese">Chinese</option>
+              </select>
             </label>
             <span>REVIEW</span>
           </div>
@@ -1057,21 +1113,42 @@ function App() {
               Delete
             </button>
           </div>
-          <label className="zoom">
-            −{" "}
+          <div className="zoom">
+            <button
+              aria-label="Zoom out timeline"
+              disabled={zoom <= 1}
+              onClick={() =>
+                setZoom(
+                  zoomSteps[
+                    Math.max(0, zoomSteps.findIndex((n) => n >= zoom) - 1)
+                  ],
+                )
+              }
+            >
+              −
+            </button>
             <input
               aria-label="Timeline zoom"
               type="range"
-              min="1"
-              max="12"
-              step="0.25"
-              value={zoom}
-              onChange={(e) => setZoom(+e.target.value)}
-            />{" "}
-            ＋
-          </label>
+              min="0"
+              max="8"
+              step="0.125"
+              value={Math.log2(zoom)}
+              onChange={(e) => setZoom(2 ** +e.target.value)}
+            />
+            <button
+              aria-label="Zoom in timeline"
+              disabled={zoom >= 256}
+              onClick={() => setZoom(zoomSteps.find((n) => n > zoom) || 256)}
+            >
+              ＋
+            </button>
+            <output aria-label="Zoom level">
+              {zoom < 10 ? zoom.toFixed(1) : Math.round(zoom)}×
+            </output>
+          </div>
         </div>
-        <div className="timeline-scroll">
+        <div className="timeline-scroll" ref={timelineScroll}>
           <div
             className="timeline-inner"
             style={{ width: `${zoom * 100}%` }}
@@ -1083,9 +1160,12 @@ function App() {
             }}
           >
             <div className="ruler">
-              {Array.from({ length: Math.ceil(10 * zoom) + 1 }, (_, i) => (
-                <span key={i} style={{ left: `${(i / (10 * zoom)) * 100}%` }}>
-                  {stamp((duration * i) / (10 * zoom)).slice(3, 8)}
+              {Array.from({ length: tickCount }, (_, i) => (
+                <span
+                  key={i}
+                  style={{ left: `${((tickStep * i) / duration) * 100}%` }}
+                >
+                  {rulerLabel(tickStep * i, tickStep, duration)}
                 </span>
               ))}
             </div>

@@ -35,7 +35,7 @@ Transcription never uploads audio. Translation sends subtitle text to your confi
 1. **Open video**, or choose **Video URL**, preview its metadata, then **Download & import**. Choose a destination folder. Only the final `after_move` output is imported, after merging completes.
 2. Play/pause, seek with the scrubber or waveform, and step by the detected frame interval. H.264/AAC MP4 playback was tested with real files. For unsupported codecs, the playback error offers **Create compatible preview**: an asynchronous, cancellable H.264/AAC conversion. It preserves the original media path. **Relink video** preserves captions if you move the original file.
 3. Choose a Whisper model in Settings. Select English or Chinese as the source language. **Transcribe** runs Whisper's local DTW token alignment automatically and adds editable captions with audio-based start/end times. The task panel shows progress and supports cancellation. Low-confidence or non-monotonic token timing is marked **Check sync**. Re-running transcription adds another set; use Undo to remove an unwanted run.
-4. Select a caption by clicking its row or timeline block. Type source and target text side by side. Timing inputs use seconds with milliseconds. Drag blocks to move them; drag either edge to trim. Place the playhead inside a caption to split it at the nearest aligned word boundary, or merge the selection with the next caption in time order. Source text and timing edits mark the prior token alignment **Check sync**. Overlaps are allowed intentionally. Timeline zoom ranges from 1× to 256× and shows milliseconds at close zoom.
+4. Select a caption by clicking its row or timeline block. Type source and target text side by side. Timing inputs use seconds with milliseconds. Drag blocks to move them; drag either edge to trim. Place the playhead inside a caption to split it at the nearest aligned word boundary, or merge the selection with the next caption in time order. Source text and timing edits mark the prior token alignment **Check sync**. Overlaps are allowed and flagged with an exclamation mark and a tooltip showing a conflicting interval. Source and translation blocks overlay a normalized full-height waveform. Ctrl-click or Shift-click selects multiple captions; dragging moves the selection together. Copy/cut/paste preserves linked text and relative timing, with paste anchored at the playhead; paste beyond the media end is rejected. Timeline zoom ranges from 1× to 256× and shows milliseconds at close zoom.
 5. Select English or Chinese as the target language and click **Translate**. Reviewed captions are skipped; other captions are retried. Source changes mark existing translations stale. In-flight replies cannot overwrite newer source text, manual target edits or another target language. Failed captions retain any existing target text and expose an error.
 6. Check each translation, then click its review indicator. **Needs review** filters the list. Changing source text or the target language invalidates applicable translations. Review is a human decision, never an automatic consequence of receiving AI output.
 7. **Save project** writes a versioned `.captionproj` JSON document. **Open project** reopens it. Media remains externally referenced, so keep it at its saved location or relink it.
@@ -51,7 +51,9 @@ Transcription never uploads audio. Translation sends subtitle text to your confi
 | N | New caption at playhead |
 | S | Split selected caption at playhead |
 | M | Merge selected caption with next |
-| Delete | Delete selected caption |
+| Ctrl+A / Ctrl+C / Ctrl+X / Ctrl+V | Select all / copy / cut / paste captions at playhead (timeline or caption list focus) |
+| Ctrl-click / Shift-click | Toggle caption selection / select a range |
+| Delete | Delete selected captions |
 | Ctrl+Z / Ctrl+Shift+Z or Ctrl+Y | Undo / redo |
 | Ctrl+S / Ctrl+Shift+S | Save / Save as |
 
@@ -90,11 +92,11 @@ npm run build
 npm run test:e2e
 ```
 
-Ten core tests cover real disk roundtrips and concurrent writes, timing validation, aligned split and edit invalidation, stale and racing translations, SRT output, shell metacharacters and real child-process cancellation. The Electron test generates a real H.264/AAC video with FFmpeg and checks playback, pause, seek, frame stepping, waveform readiness, caption edits, save/reopen, pointer dragging, split/merge and undo/redo.
+Twelve core tests cover real disk roundtrips and concurrent writes, timing validation, aligned split and edit invalidation, stale and racing translations, SRT output, shell metacharacters and real child-process cancellation. The Electron test generates a real H.264/AAC video with FFmpeg and checks playback, pause, seek, frame stepping, waveform readiness, caption edits, save/reopen, pointer dragging, split/merge and undo/redo.
 
 `npm run test:pipeline` additionally uses official tools and the public whisper.cpp `jfk.wav` sample. Place `yt-dlp.exe`, `jfk.wav`, `ggml-tiny.en.bin`, and `whisper/Release/whisper-cli.exe` with its DLLs under `.tools/test-assets/`. This ignored local folder travels with the checkout when it is moved. The integration test serves a local DASH stream, verifies actual separate-stream download and FFmpeg merging, runs actual whisper.cpp transcription with DTW token alignment and editable caption import, then verifies translation failures/retries/review/export/cancellation against a local mock HTTP endpoint. It does not verify AI translation quality or any paid provider's credentials.
 
-Validated in this workspace: TypeScript checks, all ten core tests, both Electron integration suites, and a clean npm dependency audit. Screenshots are saved as `verification.png` and `workflow-verification.png`.
+Validated in this workspace: TypeScript checks, all twelve core tests, both Electron integration suites, and a clean npm dependency audit. Screenshots are saved as `verification.png` and `workflow-verification.png`.
 
 ## Version-one limits
 

@@ -5,11 +5,11 @@ Tested on Windows x64 using Electron 44.4.5 and Node.js 24.19.0.
 | Check | Result |
 | --- | --- |
 | TypeScript (`tsc --noEmit`) | Passed |
-| Core automated tests | 10 passed, 0 failed |
+| Core automated tests | 12 passed, 0 failed |
 | Dependency audit | 0 known vulnerabilities at installation/audit time |
 | Real H.264/AAC video | Play, pause, seek and 30-fps frame stepping passed |
 | Waveform | Real FFmpeg PCM extraction and displayed peaks passed |
-| Timeline | Pointer drag, split, merge, undo and redo passed |
+| Timeline | Group drag, split, merge, clipboard shortcuts, bulk delete, undo/redo, overlap warnings and waveform overlay/zoom passed |
 | Persistence | Unicode roundtrip, ordered concurrent writes and UI save/reopen passed |
 | Translation state | Stale marking, manual-edit protection, failure, retry and review passed |
 | Download | Real yt-dlp metadata and fresh local DASH download, separate audio/video merging, final-file import passed |

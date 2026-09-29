@@ -479,7 +479,7 @@ function App() {
       (prev) => ({
         ...prev,
         captions: prev.captions.map((c) =>
-          c.id === d.id ? { ...c, start, end } : c,
+          c.id === d.id ? timing(c, start, end, duration) : c,
         ),
       }),
       false,
@@ -997,6 +997,21 @@ function App() {
                         }
                       }}
                     />
+                    {c.alignment && (
+                      <small
+                        className={
+                          "alignment-state " +
+                          (c.alignment.needsReview ? "check" : "aligned")
+                        }
+                        title={
+                          c.alignment.needsReview
+                            ? "Source or timing changed, or token alignment is uncertain. Check against audio."
+                            : "Timed from Whisper DTW audio-aligned tokens"
+                        }
+                      >
+                        {c.alignment.needsReview ? "Check sync" : "Audio aligned"}
+                      </small>
+                    )}
                   </div>
                   <textarea
                     aria-label={"Source caption " + (i + 1)}

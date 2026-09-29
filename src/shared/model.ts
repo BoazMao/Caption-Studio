@@ -8,6 +8,20 @@ export const CaptionSchema = z
     target: z.string(),
     status: z.enum(["empty", "draft", "reviewed", "stale", "failed"]),
     error: z.string().optional(),
+    alignment: z
+      .object({
+        method: z.literal("whisper-dtw"),
+        needsReview: z.boolean(),
+        tokens: z.array(
+          z.object({
+            text: z.string(),
+            start: z.number().finite().nonnegative(),
+            end: z.number().finite().nonnegative(),
+            confidence: z.number().finite().min(0).max(1),
+          }),
+        ),
+      })
+      .optional(),
   })
   .refine((c) => c.end > c.start, "Caption end must follow start");
 export const ProjectSchema = z
@@ -48,6 +62,10 @@ export function sourceEdit(c: Caption, source: string): Caption {
     source,
     status: source === c.source ? c.status : c.target ? "stale" : "empty",
     error: undefined,
+    alignment:
+      source === c.source || !c.alignment
+        ? c.alignment
+        : { ...c.alignment, needsReview: true },
   };
 }
 export function timing(
@@ -64,11 +82,61 @@ export function timing(
     end > duration + 0.001
   )
     throw Error("Timing must be within the video and at least 40 ms long");
-  return { ...c, start, end };
+  return {
+    ...c,
+    start,
+    end,
+    alignment:
+      (start === c.start && end === c.end) || !c.alignment
+        ? c.alignment
+        : { ...c.alignment, needsReview: true },
+  };
 }
 export function split(c: Caption, at: number, id: string): Caption[] {
   if (at - c.start < 0.04 || c.end - at < 0.04)
     throw Error("Place the playhead inside the caption");
+  const aligned = c.alignment?.needsReview ? undefined : c.alignment?.tokens;
+  if (aligned && aligned.length > 1) {
+    const boundaries = aligned.slice(1).flatMap((token, i) =>
+      /^\s/.test(token.text) || /[\u3400-\u9fff]/.test(c.source)
+        ? [
+            {
+              index: i + 1,
+              time: (aligned[i].end + token.start) / 2,
+            },
+          ]
+        : [],
+    );
+    const valid = boundaries.filter(
+      (b) => b.time - c.start >= 0.04 && c.end - b.time >= 0.04,
+    );
+    const closest = valid.sort(
+      (a, b) => Math.abs(a.time - at) - Math.abs(b.time - at),
+    )[0];
+    if (closest) {
+      const first = aligned.slice(0, closest.index);
+      const second = aligned.slice(closest.index);
+      return [
+        {
+          ...c,
+          end: closest.time,
+          source: first.map((t) => t.text).join("").trim(),
+          target: "",
+          status: "empty",
+          alignment: { ...c.alignment!, tokens: first },
+        },
+        {
+          ...c,
+          id,
+          start: closest.time,
+          source: second.map((t) => t.text).join("").trim(),
+          target: "",
+          status: "empty",
+          alignment: { ...c.alignment!, tokens: second },
+        },
+      ];
+    }
+  }
   const words = c.source.split(" "),
     cut = Math.max(
       1,
@@ -81,6 +149,9 @@ export function split(c: Caption, at: number, id: string): Caption[] {
       source: words.slice(0, cut).join(" "),
       target: "",
       status: "empty",
+      alignment: c.alignment
+        ? { ...c.alignment, needsReview: true }
+        : undefined,
     },
     {
       ...c,
@@ -89,6 +160,9 @@ export function split(c: Caption, at: number, id: string): Caption[] {
       source: words.slice(cut).join(" "),
       target: "",
       status: "empty",
+      alignment: c.alignment
+        ? { ...c.alignment, needsReview: true }
+        : undefined,
     },
   ];
 }
@@ -100,6 +174,7 @@ export function merge(a: Caption, b: Caption): Caption {
     source: [a.source, b.source].filter(Boolean).join(" "),
     target: [a.target, b.target].filter(Boolean).join(" "),
     status: a.target || b.target ? "stale" : "empty",
+    alignment: undefined,
   };
 }
 export function translated(

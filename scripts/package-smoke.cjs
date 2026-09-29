@@ -2,7 +2,7 @@ const { _electron: electron } = require("playwright");
 const path = require("node:path");
 const fs = require("node:fs/promises");
 const root = path.resolve(__dirname, ".."),
-  work = path.resolve(root, "../../work");
+  work = path.join(root, ".tools", "test-work");
 (async () => {
   const profile = path.join(work, "packaged-profile-" + Date.now());
   await fs.mkdir(profile, { recursive: true });

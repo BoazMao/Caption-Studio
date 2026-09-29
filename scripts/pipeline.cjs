@@ -5,7 +5,8 @@ const fs = require("node:fs/promises"),
   path = require("node:path"),
   assert = require("node:assert/strict");
 const root = path.resolve(__dirname, ".."),
-  work = path.resolve(root, "../../work"),
+  work = path.join(root, ".tools", "test-work"),
+  assets = path.join(root, ".tools", "test-assets"),
   dir = path.join(work, "pipeline");
 (async () => {
   await fs.mkdir(dir, { recursive: true });
@@ -20,7 +21,7 @@ const root = path.resolve(__dirname, ".."),
       "-i",
       "color=c=0x1c3940:s=640x360:r=30",
       "-i",
-      path.join(work, "jfk.wav"),
+      path.join(assets, "jfk.wav"),
       "-shortest",
       "-c:v",
       "libx264",
@@ -105,7 +106,7 @@ const root = path.resolve(__dirname, ".."),
   try {
     const page = await app.firstWindow();
     await page
-      .getByRole("heading", { name: "Your story, clearly told." })
+      .getByRole("button", { name: "Open local video", exact: true })
       .waitFor();
     await page.evaluate(
       async (config) => {
@@ -117,9 +118,9 @@ const root = path.resolve(__dirname, ".."),
       {
         ffmpeg,
         ffprobe: require("ffprobe-static").path,
-        ytdlp: path.join(work, "yt-dlp.exe"),
-        whisper: path.join(work, "whisper/Release/whisper-cli.exe"),
-        modelPath: path.join(work, "ggml-tiny.en.bin"),
+        ytdlp: path.join(assets, "yt-dlp.exe"),
+        whisper: path.join(assets, "whisper/Release/whisper-cli.exe"),
+        modelPath: path.join(assets, "ggml-tiny.en.bin"),
         endpoint: base + "/v1",
         model: "test-compatible",
         apiKey: "",
@@ -170,8 +171,10 @@ const root = path.resolve(__dirname, ".."),
       .getByLabel("Source caption 1", { exact: true })
       .inputValue();
     assert.ok(source.length > 10);
+    assert.ok((await page.locator(".alignment-state.aligned").count()) >= 1);
+    assert.ok(+(await page.getByLabel("Start 1").inputValue()) > 0.1);
     console.log(
-      "PASS: real whisper.cpp tiny.en transcription:",
+      "PASS: real whisper.cpp tiny.en transcription with automatic DTW alignment:",
       source.slice(0, 100),
     );
     await page.waitForFunction(() =>

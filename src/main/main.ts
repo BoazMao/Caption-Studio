@@ -12,7 +12,8 @@ import { Readable } from "node:stream";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { ProjectSchema, parseSrt, srt, type Project } from "../shared/model";
+import { ProjectSchema, srt, type Project } from "../shared/model";
+import { captionsFromWhisperJson, dtwPreset } from "../shared/alignment";
 import type { Settings, Requests, Event } from "../shared/ipc";
 import { Jobs, run } from "./jobs";
 import { readProject, writeProject } from "./storage";
@@ -335,20 +336,24 @@ async function setup() {
   });
   handle("preview", async (raw) => {
     const url = validUrl(raw);
-    let result = "";
+    let result = "",
+      failure: unknown;
     const id = jobs.start("URL preview", async (signal, update) => {
-      result = await run(
-        settings.ytdlp,
-        ["--no-playlist", "--skip-download", "--dump-single-json", "--", url],
-        signal,
-      );
-      update(100, "Metadata ready");
+      try {
+        result = await run(
+          settings.ytdlp,
+          ["--no-playlist", "--skip-download", "--dump-single-json", "--", url],
+          signal,
+        );
+        update(100, "Metadata ready");
+      } catch (error) {
+        failure = error;
+        throw error;
+      }
     });
     while (jobs.active.has(id)) await new Promise((r) => setTimeout(r, 50));
-    if (!result)
-      throw Error(
-        "Metadata unavailable. Check the task panel and yt-dlp path.",
-      );
+    if (failure) throw failure;
+    if (!result) throw Error("yt-dlp returned no video metadata.");
     const m = JSON.parse(result);
     return {
       title: String(m.title || "Untitled video"),
@@ -414,6 +419,7 @@ async function setup() {
     if (!settings.modelPath)
       throw Error("Select a whisper.cpp model in Settings");
     const config = { ...settings };
+    const preset = dtwPreset(config.modelPath);
     return jobs.start("Transcription", async (signal, update) => {
       const dir = await tempDir();
       try {
@@ -448,7 +454,9 @@ async function setup() {
             wav,
             "-l",
             p.language || "auto",
-            "-osrt",
+            "-dtw",
+            preset,
+            "-ojf",
             "-of",
             out,
             "-pp",
@@ -456,10 +464,14 @@ async function setup() {
           signal,
           (text) => {
             const m = text.match(/progress\s*=\s*(\d+)%/);
-            if (m) update(15 + +m[1] * 0.85, "Recognizing speech locally");
+            if (m) update(15 + +m[1] * 0.8, "Recognizing and aligning speech locally");
           },
         );
-        const captions = parseSrt(await readFile(out + ".srt", "utf8"));
+        update(96, "Building captions from aligned tokens");
+        const captions = captionsFromWhisperJson(
+          JSON.parse(await readFile(out + ".json", "utf8")),
+          p.media!.duration,
+        );
         signal.throwIfAborted();
         emit({ type: "captions", projectId: p.id, captions });
       } finally {

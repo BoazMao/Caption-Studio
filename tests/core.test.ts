@@ -17,6 +17,7 @@ import {
 } from "../src/shared/model";
 import { writeProject, readProject } from "../src/main/storage";
 import { run, Jobs } from "../src/main/jobs";
+import { captionsFromWhisperJson, dtwPreset } from "../src/shared/alignment";
 const c: Caption = {
   id: "stable",
   start: 1,
@@ -58,6 +59,72 @@ test("split partitions text, preserves first ID and clears ambiguous translation
   assert.equal(pair.map((x) => x.source).join(" "), c.source);
   assert.equal(pair[0].target, "");
   assert.throws(() => split(c, 1, "x"));
+});
+test("DTW token timing creates speech-aligned cues and survives project save", async () => {
+  const token = (text: string, from: number, to: number, p = 0.95) => ({
+    text,
+    offsets: { from, to },
+    t_dtw: from,
+    p,
+  });
+  const captions = captionsFromWhisperJson(
+    {
+      transcription: [
+        {
+          text: "Hello world. Again today.",
+          tokens: [
+            token("[_BEG_]", 0, 0),
+            token(" Hello", 320, 650),
+            token(" world.", 660, 1100),
+            token(" Again", 2100, 2500),
+            token(" today.", 2510, 2900),
+          ],
+        },
+      ],
+    },
+    4,
+  );
+  assert.equal(captions.length, 2);
+  assert.equal(captions[0].start, 0.27);
+  assert.equal(captions[0].source, "Hello world.");
+  assert.ok(captions[0].end < captions[1].start);
+  assert.equal(captions[0].alignment?.method, "whisper-dtw");
+  const pair = split(captions[0], 0.55, "second");
+  assert.equal(pair[0].source, "Hello");
+  assert.equal(pair[1].source, "world.");
+  assert.equal(pair[0].end, pair[1].start);
+  assert.equal(sourceEdit(captions[0], "Corrected").alignment?.needsReview, true);
+  assert.equal(timing(captions[0], 0.1, captions[0].end).alignment?.needsReview, true);
+  const dir = await mkdtemp(path.join(tmpdir(), "caption-alignment-"));
+  try {
+    const file = path.join(dir, "aligned.captionproj");
+    await writeProject(file, { ...blank(), captions });
+    assert.deepEqual((await readProject(file)).captions, captions);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+test("incomplete DTW output is rejected rather than imported with guessed times", () => {
+  assert.equal(dtwPreset("C:\\models\\ggml-medium.bin"), "medium");
+  assert.equal(dtwPreset("ggml-large-v3-turbo.bin"), "large.v3.turbo");
+  assert.throws(() => dtwPreset("custom.bin"), /Automatic alignment/);
+  assert.throws(
+    () =>
+      captionsFromWhisperJson(
+        {
+          transcription: [
+            {
+              text: "A",
+              tokens: [
+                { text: " A", offsets: { from: 100, to: 200 }, t_dtw: -1, p: 0.8 },
+              ],
+            },
+          ],
+        },
+        1,
+      ),
+    /complete audio-aligned/,
+  );
 });
 test("merge spans timing, joins text, invalidates translations", () => {
   const m = merge(c, { ...c, id: "next", start: 5, end: 7, source: "Again" });

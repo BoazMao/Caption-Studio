@@ -67,7 +67,10 @@ const root = path.resolve(__dirname, ".."),
         await window.studio.call("configure", settings);
       }
     }, missingYtDlp);
-    assert.match(previewError, /Could not start .*missing-yt-dlp\.exe.*Settings/s);
+    assert.match(
+      previewError,
+      /Could not start .*missing-yt-dlp\.exe.*Settings/s,
+    );
     await app.evaluate(({ dialog }, fixture) => {
       dialog.showOpenDialog = async () => ({
         canceled: false,
@@ -274,6 +277,106 @@ const root = path.resolve(__dirname, ".."),
     );
     await page.getByRole("button", { name: "Pause", exact: true }).click();
     await page.waitForFunction(() => !document.querySelector(".task.running"));
+    // Caption editing shortcuts use the OS clipboard and keep linked tracks together.
+    const initialCount = await page.locator(".caption-row").count();
+    const firstStart = await page
+      .getByLabel("Start 1", { exact: true })
+      .inputValue();
+    await page.getByLabel("Seek video").fill(firstStart);
+    await page.locator(".timeline").focus();
+    await page.keyboard.press("Control+a");
+    await page.keyboard.press("Control+c");
+    await page.waitForFunction(() =>
+      document.body.innerText.includes("captions copied"),
+    );
+    await page.keyboard.press("Control+v");
+    await page.waitForFunction(
+      (n) => document.querySelectorAll(".caption-row").length === n * 2,
+      initialCount,
+    );
+    assert.equal(
+      await page.locator(".source-lane .overlap-warning").count(),
+      2,
+    );
+    await page.keyboard.press("Control+z");
+    assert.equal(await page.locator(".caption-row").count(), initialCount);
+    await page.keyboard.press("Control+Shift+z");
+    assert.equal(await page.locator(".caption-row").count(), initialCount * 2);
+    await page.keyboard.press("Control+a");
+    await page.keyboard.press("Control+x");
+    await page.waitForFunction(() => !document.querySelector(".caption-row"));
+    await page.keyboard.press("Control+z");
+    assert.equal(await page.locator(".caption-row").count(), initialCount * 2);
+    const sourceField = page.getByLabel("Source caption 1", { exact: true });
+    await page.locator(".timeline").focus();
+    await page.keyboard.press("Control+a");
+    const groupStart = Number(
+      await page.getByLabel("Start 1", { exact: true }).inputValue(),
+    );
+    const groupSecondStart = Number(
+      await page.getByLabel("Start 2", { exact: true }).inputValue(),
+    );
+    const groupBox = await page
+      .locator(".source-lane .clip")
+      .last()
+      .boundingBox();
+    await page.mouse.move(groupBox.x + 30, groupBox.y + 12);
+    await page.mouse.down();
+    await page.mouse.move(groupBox.x + 70, groupBox.y + 12, { steps: 4 });
+    await page.mouse.up();
+    assert.ok(
+      Number(await page.getByLabel("Start 1", { exact: true }).inputValue()) >
+        groupStart,
+    );
+    const movedFirst =
+      Number(await page.getByLabel("Start 1", { exact: true }).inputValue()) -
+      groupStart;
+    const movedSecond =
+      Number(await page.getByLabel("Start 2", { exact: true }).inputValue()) -
+      groupSecondStart;
+    assert.ok(
+      Math.abs(movedFirst - movedSecond) <= 0.0011,
+      "group drag preserves relative timing to displayed millisecond precision",
+    );
+    await page.keyboard.press("Control+z");
+    await page.keyboard.press("Delete");
+    assert.equal(await page.locator(".caption-row").count(), 0);
+    await page.keyboard.press("Control+z");
+    await sourceField.focus();
+    await page.keyboard.press("Control+a");
+    assert.equal(
+      await sourceField.evaluate((el) => el.selectionEnd - el.selectionStart),
+      (await sourceField.inputValue()).length,
+    );
+    const layout = await page.evaluate(() => {
+      const wave = document.querySelector("canvas").getBoundingClientRect();
+      return [...document.querySelectorAll(".lane")].every((el) => {
+        const box = el.getBoundingClientRect();
+        return box.top >= wave.top && box.bottom <= wave.bottom;
+      });
+    });
+    assert.ok(layout, "caption lanes overlay the waveform");
+    const waveBefore = await page
+      .locator("canvas")
+      .evaluate((el) => el.toDataURL());
+    await page.getByLabel("Timeline zoom").fill("5");
+    await page.waitForFunction(
+      (before) => document.querySelector("canvas").toDataURL() !== before,
+      waveBefore,
+    );
+    assert.ok(
+      await page
+        .locator("canvas")
+        .evaluate(
+          (el) =>
+            el.clientWidth <=
+            document.querySelector(".timeline-scroll").clientWidth,
+        ),
+    );
+    await page.getByLabel("Timeline zoom").fill("0");
+    console.log(
+      "PASS: waveform overlays/zoom, caption clipboard, multi-selection, overlap warnings, native text selection and undo/redo",
+    );
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.screenshot({ path: path.join(root, "verification.png") });
     console.log(

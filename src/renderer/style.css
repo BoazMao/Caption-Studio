@@ -919,3 +919,77 @@ footer {
   max-height: 250px;
   overflow: auto;
 }
+
+/* Shared time coordinates: captions sit over the full-height waveform. */
+.timeline-inner {
+  height: clamp(190px, 25vh, 300px);
+}
+.timeline-inner canvas {
+  height: calc(100% - 0px);
+  opacity: 0.85;
+}
+.timeline-inner .lane {
+  position: absolute;
+  left: 0;
+  right: 0;
+  margin: 0;
+  background: transparent;
+  pointer-events: none;
+}
+.source-lane {
+  top: 38%;
+}
+.target-lane {
+  top: 66%;
+}
+.lane .clip {
+  pointer-events: auto;
+  background: #214c40bd;
+  padding-right: 24px;
+}
+.lane .clip.target {
+  background: #283b60bd;
+  cursor: grab;
+}
+.lane .clip.chosen {
+  border: 2px solid #bcefdc;
+  background: #416e5bd9;
+}
+.lane .clip.overlap {
+  border-color: #ffc267;
+  overflow: visible;
+}
+.clip > span:not(.handle):not(.overlap-warning) { display: block; overflow: hidden; text-overflow: ellipsis; }
+.overlap-warning {
+  position: absolute;
+  right: 0;
+  top: -12px;
+  width: 17px;
+  height: 18px;
+  line-height: 18px;
+  text-align: center;
+  border-radius: 50%;
+  background: #ffc267;
+  color: #30220e;
+  font-weight: bold;
+}
+.clip:focus-visible,
+.caption-row:focus-visible {
+  outline: 2px solid #e2fff3;
+  outline-offset: 2px;
+}
+.timeline-tools {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.timeline .section-head {
+  height: auto;
+  min-height: 44px;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.timeline-tools small {
+  color: #99b7ba;
+}

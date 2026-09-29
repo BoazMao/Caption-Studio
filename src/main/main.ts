@@ -5,6 +5,7 @@ import {
   dialog,
   protocol,
   safeStorage,
+  clipboard,
 } from "electron";
 import { readFile, writeFile, mkdir, stat, rm } from "node:fs/promises";
 import { createReadStream, existsSync } from "node:fs";
@@ -171,6 +172,10 @@ async function setup() {
     window.close();
   });
   handle("settings", () => settings);
+  handle("clipboardRead", () => clipboard.readText());
+  handle("clipboardWrite", (text) => {
+    clipboard.writeText(z.string().max(10000000).parse(text));
+  });
   handle("configure", async (input) => {
     settings = z
       .object({
@@ -294,7 +299,8 @@ async function setup() {
       let left: Buffer = Buffer.alloc(0),
         peak = 0,
         count = 0;
-      const bucket = Math.max(80, Math.ceil((input.duration * 8000) / 16000));
+      // Millisecond detail for editing; bound IPC/memory for very long media.
+      const bucket = Math.max(8, Math.ceil((input.duration * 8000) / 2000000));
       await run(
         settings.ffmpeg,
         [
@@ -464,7 +470,11 @@ async function setup() {
           signal,
           (text) => {
             const m = text.match(/progress\s*=\s*(\d+)%/);
-            if (m) update(15 + +m[1] * 0.8, "Recognizing and aligning speech locally");
+            if (m)
+              update(
+                15 + +m[1] * 0.8,
+                "Recognizing and aligning speech locally",
+              );
           },
         );
         update(96, "Building captions from aligned tokens");

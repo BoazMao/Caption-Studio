@@ -33,6 +33,8 @@ export type Event =
       error?: string;
     };
 export type Requests = {
+  clipboardRead: { input: void; output: string };
+  clipboardWrite: { input: string; output: void };
   closed: { input: void; output: void };
   settings: { input: void; output: Settings };
   configure: { input: Settings; output: void };

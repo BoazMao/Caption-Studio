@@ -13,6 +13,7 @@ import {
 } from "../shared/model";
 import type { Bridge, Job, Settings } from "../shared/ipc";
 import "./style.css";
+import { overlappingCaptions, pasteCaptions } from "../shared/editing";
 declare global {
   interface Window {
     studio: Bridge;
@@ -33,7 +34,8 @@ function rulerLabel(seconds: number, step: number, duration: number) {
 function App() {
   const [p, setP] = useState<Project>(blank),
     [file, setFile] = useState<string>(),
-    [selected, select] = useState(""),
+    [selected, setSelected] = useState(""),
+    [selection, setSelection] = useState<string[]>([]),
     [time, setTime] = useState(0),
     [playing, setPlaying] = useState(false),
     [url, setUrl] = useState(""),
@@ -70,15 +72,91 @@ function App() {
       start: number;
       end: number;
       before: Project;
+      ids: string[];
     } | null>(null),
     switching = useRef(false);
   current.current = p;
   pendingRecovery.current = recovery;
+  useEffect(() => {
+    setSelection((ids) => {
+      const remaining = ids.filter((id) => p.captions.some((c) => c.id === id));
+      return remaining.length === ids.length ? ids : remaining;
+    });
+  }, [p.captions]);
+  function select(id: string) {
+    setSelected(id);
+    setSelection(id ? [id] : []);
+  }
+  function choose(
+    id: string,
+    e: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean },
+  ) {
+    if (e.shiftKey && selected) {
+      const a = sorted.findIndex((c) => c.id === selected),
+        b = sorted.findIndex((c) => c.id === id);
+      setSelection(
+        sorted.slice(Math.min(a, b), Math.max(a, b) + 1).map((c) => c.id),
+      );
+    } else if (e.ctrlKey || e.metaKey) {
+      setSelection((ids) =>
+        ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id],
+      );
+      setSelected(id);
+    } else select(id);
+  }
+  function deleteSelected() {
+    commit((prev) => ({
+      ...prev,
+      captions: prev.captions.filter((c) => !selection.includes(c.id)),
+    }));
+    select("");
+  }
+  async function copySelected(cut = false) {
+    const project = current.current;
+    const captions = project.captions.filter((c) => selection.includes(c.id));
+    if (!captions.length) return;
+    await api.call(
+      "clipboardWrite",
+      JSON.stringify({
+        format: "caption-studio/1",
+        targetLanguage: project.targetLanguage,
+        captions,
+      }),
+    );
+    if (cut && current.current === project) deleteSelected();
+    setNotice(`${captions.length} captions ${cut ? "cut" : "copied"}`);
+  }
+  async function pasteSelected() {
+    const project = current.current,
+      position = time;
+    const text = await api.call("clipboardRead", undefined);
+    if (current.current !== project) return;
+    let captions: Caption[];
+    try {
+      captions = pasteCaptions(
+        text,
+        position,
+        duration,
+        project.targetLanguage,
+      );
+    } catch (e) {
+      throw Error(
+        e instanceof Error && e.message.includes("do not fit")
+          ? e.message
+          : "Copy caption blocks in Caption Studio before pasting.",
+      );
+    }
+    commit((prev) => ({ ...prev, captions: [...prev.captions, ...captions] }));
+    setSelected(captions[0].id);
+    setSelection(captions.map((c) => c.id));
+    setNotice(`Pasted ${captions.length} captions at the playhead`);
+  }
   const duration = p.media?.duration || 30,
     tickStep = rulerStep(duration / zoom / 8),
     tickCount = Math.floor(duration / tickStep) + 1,
     active = p.captions.find((c) => c.id === selected),
     sorted = [...p.captions].sort((a, b) => a.start - b.start),
+    overlaps = overlappingCaptions(p.captions),
     running = jobs.filter((j) => j.state === "running"),
     busy = running.some((j) =>
       [
@@ -347,6 +425,23 @@ function App() {
         return;
       }
       if (input) return;
+      const editing = (e.target as HTMLElement).closest(
+        ".timeline,.caption-scroll",
+      );
+      if (
+        editing &&
+        (e.ctrlKey || e.metaKey) &&
+        ["a", "c", "x", "v"].includes(e.key.toLowerCase())
+      ) {
+        e.preventDefault();
+        const key = e.key.toLowerCase();
+        if (key === "a") {
+          setSelection(sorted.map((c) => c.id));
+          setSelected(sorted[0]?.id || "");
+        } else if (key === "v") void attempt(pasteSelected);
+        else void attempt(() => copySelected(key === "x"));
+        return;
+      }
       if ((e.ctrlKey || e.metaKey) && e.key === "z") {
         e.preventDefault();
         e.shiftKey ? redo() : undo();
@@ -365,12 +460,10 @@ function App() {
       } else if (e.key.toLowerCase() === "n") add();
       else if (e.key.toLowerCase() === "s") splitSelected();
       else if (e.key.toLowerCase() === "m") mergeSelected();
-      else if (e.key === "Delete" && selected)
-        commit((prev) => ({
-          ...prev,
-          captions: prev.captions.filter((c) => c.id !== selected),
-        }));
-      else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      else if (e.key === "Delete" && selection.length) {
+        e.preventDefault();
+        deleteSelected();
+      } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
         e.preventDefault();
         const i = sorted.findIndex((c) => c.id === selected),
           c =
@@ -397,6 +490,7 @@ function App() {
     const el = canvas.current;
     const scroll = timelineScroll.current;
     if (!el || !scroll) return;
+    const amplitude = peaks.reduce((max, peak) => Math.max(max, peak), 0) || 1;
     const draw = () => {
       const w = scroll.clientWidth,
         h = el.clientHeight,
@@ -421,7 +515,7 @@ function App() {
           );
         let peak = 0;
         for (let i = a; i < b; i++) peak = Math.max(peak, peaks[i] || 0);
-        const size = peak * (h - 8);
+        const size = (peak / amplitude) * (h - 8);
         ctx.fillRect(x, (h - size) / 2, 1.5, Math.max(1, size));
       }
     };
@@ -446,7 +540,12 @@ function App() {
     e.preventDefault();
     e.stopPropagation();
     const c = p.captions.find((c) => c.id === id)!;
-    select(id);
+    (e.currentTarget.closest(".clip") as HTMLElement)?.focus();
+    if (e.ctrlKey || e.metaKey || e.shiftKey) {
+      choose(id, e);
+      return;
+    }
+    if (!selection.includes(id)) select(id);
     drag.current = {
       id,
       mode,
@@ -454,6 +553,7 @@ function App() {
       start: c.start,
       end: c.end,
       before: current.current,
+      ids: selection.includes(id) ? selection : [id],
     };
     e.currentTarget.setPointerCapture(e.pointerId);
   }
@@ -467,10 +567,12 @@ function App() {
     let start = d.start,
       end = d.end;
     if (d.mode === "move") {
-      start = Math.max(
-        0,
-        Math.min(duration - (d.end - d.start), d.start + delta),
+      const group = d.before.captions.filter((c) => d.ids.includes(c.id));
+      const shift = Math.max(
+        -Math.min(...group.map((c) => c.start)),
+        Math.min(duration - Math.max(...group.map((c) => c.end)), delta),
       );
+      start = d.start + shift;
       end = start + d.end - d.start;
     } else if (d.mode === "start")
       start = Math.max(0, Math.min(end - 0.04, start + delta));
@@ -479,7 +581,19 @@ function App() {
       (prev) => ({
         ...prev,
         captions: prev.captions.map((c) =>
-          c.id === d.id ? timing(c, start, end, duration) : c,
+          d.mode === "move" && d.ids.includes(c.id)
+            ? (() => {
+                const original = d.before.captions.find((x) => x.id === c.id)!;
+                return timing(
+                  c,
+                  original.start + start - d.start,
+                  original.end + start - d.start,
+                  duration,
+                );
+              })()
+            : c.id === d.id
+              ? timing(c, start, end, duration)
+              : c,
         ),
       }),
       false,
@@ -488,8 +602,10 @@ function App() {
   function pointerUp() {
     const d = drag.current;
     if (d) {
-      past.current.push(d.before);
-      future.current = [];
+      if (current.current !== d.before) {
+        past.current.push(d.before);
+        future.current = [];
+      }
       drag.current = null;
       setHistoryVersion((v) => v + 1);
     }
@@ -947,21 +1063,36 @@ function App() {
             </label>
             <span>REVIEW</span>
           </div>
-          <div className="caption-scroll">
+          <div
+            className="caption-scroll"
+            tabIndex={0}
+            aria-label="Caption list"
+          >
             {shown.length ? (
               shown.map((c, i) => (
                 <div
                   id={c.id}
                   key={c.id}
+                  tabIndex={0}
                   className={
-                    "caption-row " + (selected === c.id ? "selected" : "")
+                    "caption-row " +
+                    (selection.includes(c.id) ? "selected" : "")
                   }
-                  onClick={() => select(c.id)}
+                  onClick={(e) => {
+                    choose(c.id, e);
+                    if (
+                      !(e.target as HTMLElement).closest(
+                        "input,textarea,button",
+                      )
+                    )
+                      e.currentTarget.focus();
+                  }}
                 >
                   <div className="cue-time">
                     <button
-                      onClick={() => {
-                        select(c.id);
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        choose(c.id, e);
                         seek(c.start);
                       }}
                     >
@@ -1009,7 +1140,9 @@ function App() {
                             : "Timed from Whisper DTW audio-aligned tokens"
                         }
                       >
-                        {c.alignment.needsReview ? "Check sync" : "Audio aligned"}
+                        {c.alignment.needsReview
+                          ? "Check sync"
+                          : "Audio aligned"}
                       </small>
                     )}
                   </div>
@@ -1091,7 +1224,7 @@ function App() {
           </div>
         </section>
       </main>
-      <section className="timeline">
+      <section className="timeline" tabIndex={0} aria-label="Caption timeline">
         <div className="section-head">
           <div className="timeline-tools">
             <h2>Timeline</h2>
@@ -1116,17 +1249,36 @@ function App() {
             <button disabled={!active} onClick={mergeSelected}>
               Merge next <kbd>M</kbd>
             </button>
-            <button
-              disabled={!active}
-              onClick={() =>
-                commit((prev) => ({
-                  ...prev,
-                  captions: prev.captions.filter((c) => c.id !== selected),
-                }))
-              }
-            >
+            <button disabled={!selection.length} onClick={deleteSelected}>
               Delete
             </button>
+            <button
+              disabled={!selection.length}
+              title="Copy captions (Ctrl+C)"
+              onClick={() => void attempt(() => copySelected())}
+            >
+              Copy
+            </button>
+            <button
+              disabled={!selection.length}
+              title="Cut captions (Ctrl+X)"
+              onClick={() => void attempt(() => copySelected(true))}
+            >
+              Cut
+            </button>
+            <button
+              title="Paste captions at playhead (Ctrl+V)"
+              onClick={() => void attempt(pasteSelected)}
+            >
+              Paste
+            </button>
+            <small aria-live="polite">
+              {
+                selection.filter((id) => p.captions.some((c) => c.id === id))
+                  .length
+              }{" "}
+              selected
+            </small>
           </div>
           <div className="zoom">
             <button
@@ -1199,18 +1351,24 @@ function App() {
                   tabIndex={0}
                   aria-label={"Timeline caption " + c.source}
                   key={c.id}
-                  className={"clip " + (selected === c.id ? "chosen" : "")}
+                  aria-pressed={selection.includes(c.id)}
+                  title={overlaps.get(c.id)}
+                  aria-description={overlaps.get(c.id)}
+                  className={
+                    "clip " +
+                    (selection.includes(c.id) ? "chosen " : "") +
+                    (overlaps.has(c.id) ? "overlap" : "")
+                  }
                   style={{
                     left: `${(c.start / duration) * 100}%`,
                     width: `${((c.end - c.start) / duration) * 100}%`,
                   }}
                   onClick={(e) => {
                     e.stopPropagation();
-                    select(c.id);
                   }}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
-                      select(c.id);
+                      choose(c.id, e);
                       seek(c.start);
                     }
                   }}
@@ -1224,6 +1382,16 @@ function App() {
                     onPointerDown={(e) => pointerDown(e, c.id, "start")}
                   />
                   <span>{c.source || "New caption"}</span>
+                  {overlaps.has(c.id) && (
+                    <span
+                      className="overlap-warning"
+                      role="img"
+                      aria-label={overlaps.get(c.id)}
+                      title={overlaps.get(c.id)}
+                    >
+                      !
+                    </span>
+                  )}
                   <span
                     className="handle right"
                     onPointerDown={(e) => pointerDown(e, c.id, "end")}
@@ -1235,13 +1403,45 @@ function App() {
               {sorted.map((c) => (
                 <div
                   key={c.id}
-                  className={"clip target " + c.status}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={"Translation timeline caption " + c.source}
+                  title={overlaps.get(c.id)}
+                  aria-description={overlaps.get(c.id)}
+                  aria-pressed={selection.includes(c.id)}
+                  onPointerDown={(e) => pointerDown(e, c.id, "move")}
+                  onPointerMove={pointerMove}
+                  onPointerUp={pointerUp}
+                  onPointerCancel={pointerUp}
+                  onClick={(e) => e.stopPropagation()}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      choose(c.id, e);
+                      seek(c.start);
+                    }
+                  }}
+                  className={
+                    "clip target " +
+                    c.status +
+                    (selection.includes(c.id) ? " chosen" : "") +
+                    (overlaps.has(c.id) ? " overlap" : "")
+                  }
                   style={{
                     left: `${(c.start / duration) * 100}%`,
                     width: `${((c.end - c.start) / duration) * 100}%`,
                   }}
                 >
-                  {c.target || "Untranslated"}
+                  <span>{c.target || "Untranslated"}</span>
+                  {overlaps.has(c.id) && (
+                    <span
+                      className="overlap-warning"
+                      role="img"
+                      aria-label={overlaps.get(c.id)}
+                      title={overlaps.get(c.id)}
+                    >
+                      !
+                    </span>
+                  )}
                 </div>
               ))}
             </div>

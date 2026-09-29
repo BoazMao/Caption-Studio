@@ -376,6 +376,16 @@ main {
 .cue-time input::-webkit-inner-spin-button {
   display: none;
 }
+.alignment-state {
+  grid-column: 1 / -1;
+  font-size: 9px;
+  line-height: 1.2;
+  white-space: nowrap;
+  color: #9bc9b8;
+}
+.alignment-state.check {
+  color: #e4ba78;
+}
 .review {
   align-self: center;
   border: none;

@@ -4,7 +4,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const assert = require("node:assert/strict");
 const root = path.resolve(__dirname, ".."),
-  work = path.resolve(root, "../../work/e2e");
+  work = path.join(root, ".tools", "test-work", "e2e");
 (async () => {
   await fs.mkdir(work, { recursive: true });
   const fixture = path.join(work, "real video & audio.mp4");
@@ -54,6 +54,20 @@ const root = path.resolve(__dirname, ".."),
         ffprobe: require("ffprobe-static").path,
       },
     );
+    const missingYtDlp = path.join(work, "missing-yt-dlp.exe");
+    const previewError = await page.evaluate(async (missing) => {
+      const settings = await window.studio.call("settings");
+      await window.studio.call("configure", { ...settings, ytdlp: missing });
+      try {
+        await window.studio.call("preview", "https://example.com/video");
+        return "";
+      } catch (error) {
+        return String(error);
+      } finally {
+        await window.studio.call("configure", settings);
+      }
+    }, missingYtDlp);
+    assert.match(previewError, /Could not start .*missing-yt-dlp\.exe.*Settings/s);
     await app.evaluate(({ dialog }, fixture) => {
       dialog.showOpenDialog = async () => ({
         canceled: false,

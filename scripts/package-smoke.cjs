@@ -20,7 +20,7 @@ const root = path.resolve(__dirname, ".."),
   try {
     const page = await app.firstWindow();
     await page
-      .getByRole("heading", { name: "Your story, clearly told." })
+      .getByRole("button", { name: "Open local video", exact: true })
       .waitFor();
     const tools = await page.evaluate(() => window.studio.call("settings"));
     if (

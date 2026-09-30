@@ -17,6 +17,7 @@ import { ProjectSchema, srt, type Project } from "../shared/model";
 import { captionsFromWhisperJson, dtwPreset } from "../shared/alignment";
 import type { Settings, Requests, Event } from "../shared/ipc";
 import { Jobs, run } from "./jobs";
+import { whisperXJob } from "./whisperx";
 import { readProject, writeProject } from "./storage";
 protocol.registerSchemesAsPrivileged([
   {
@@ -142,6 +143,20 @@ async function setup() {
     ytdlp: "yt-dlp",
     whisper: "whisper-cli",
     modelPath: "",
+    speechEngine: "whisperx",
+    whisperxPython: (() => {
+      const candidate = path.resolve(
+        app.isPackaged
+          ? path.join(path.dirname(process.execPath), "../..")
+          : app.getAppPath(),
+        ".tools/whisperx/Scripts/python.exe",
+      );
+      return existsSync(candidate) ? candidate : "python";
+    })(),
+    whisperxModel: "medium",
+    whisperxDevice: "cpu",
+    whisperxCache: path.join(data(), "models", "whisperx"),
+    whisperxOffline: false,
     endpoint: "https://api.openai.com/v1",
     model: "",
     apiKey: "",
@@ -184,6 +199,12 @@ async function setup() {
         ytdlp: z.string().min(1),
         whisper: z.string().min(1),
         modelPath: z.string(),
+        speechEngine: z.enum(["whisperx", "whispercpp"]).default("whisperx"),
+        whisperxPython: z.string().min(1).default(defaults.whisperxPython),
+        whisperxModel: z.string().min(1).default("medium"),
+        whisperxDevice: z.enum(["cpu", "cuda"]).default("cpu"),
+        whisperxCache: z.string().min(1).default(defaults.whisperxCache),
+        whisperxOffline: z.boolean().default(false),
         endpoint: z.string().url(),
         model: z.string(),
         apiKey: z.string(),
@@ -418,10 +439,79 @@ async function setup() {
       emit({ type: "media", projectId: input.projectId, media });
     });
   });
+  const workerPath = app.isPackaged
+    ? path.join(process.resourcesPath, "workers", "whisperx_worker.py")
+    : path.join(__dirname, "whisperx_worker.py");
+  handle("checkSpeech", () => {
+    const config = { ...settings };
+    return jobs.start("WhisperX setup", async (signal, update) => {
+      const dir = await tempDir();
+      try {
+        await whisperXJob(null, config, dir, workerPath, signal, update);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+  });
+  handle("realign", (input) => {
+    const p = project(input.project),
+      ids = z.array(z.string()).min(1).parse(input.ids);
+    if (!p.media) throw Error("Open a video first");
+    trustedFile(p.media.path);
+    const originals = p.captions.filter(
+      (c) => ids.includes(c.id) && c.source.trim(),
+    );
+    if (!originals.length) throw Error("Select captions with source text");
+    const config = { ...settings };
+    return jobs.start("Alignment", async (signal, update) => {
+      const dir = await tempDir();
+      try {
+        const captions = await whisperXJob(
+          p,
+          config,
+          dir,
+          workerPath,
+          signal,
+          update,
+          originals,
+        );
+        signal.throwIfAborted();
+        emit({
+          type: "aligned",
+          projectId: p.id,
+          language: p.language,
+          originals,
+          captions,
+        });
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+  });
   handle("transcribe", (input) => {
     const p = project(input);
     if (!p.media) throw Error("Open a video first");
     trustedFile(p.media.path);
+    if (settings.speechEngine === "whisperx") {
+      const config = { ...settings };
+      return jobs.start("Transcription", async (signal, update) => {
+        const dir = await tempDir();
+        try {
+          const captions = await whisperXJob(
+            p,
+            config,
+            dir,
+            workerPath,
+            signal,
+            update,
+          );
+          signal.throwIfAborted();
+          emit({ type: "captions", projectId: p.id, captions });
+        } finally {
+          await rm(dir, { recursive: true, force: true });
+        }
+      });
+    }
     if (!settings.modelPath)
       throw Error("Select a whisper.cpp model in Settings");
     const config = { ...settings };

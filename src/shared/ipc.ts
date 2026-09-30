@@ -5,6 +5,12 @@ export type Settings = {
   ytdlp: string;
   whisper: string;
   modelPath: string;
+  speechEngine: "whisperx" | "whispercpp";
+  whisperxPython: string;
+  whisperxModel: string;
+  whisperxDevice: "cpu" | "cuda";
+  whisperxCache: string;
+  whisperxOffline: boolean;
   endpoint: string;
   model: string;
   apiKey: string;
@@ -22,6 +28,13 @@ export type Event =
   | { type: "wave"; projectId: string; peaks: number[] }
   | { type: "media"; projectId: string; media: NonNullable<Project["media"]> }
   | { type: "captions"; projectId: string; captions: Caption[] }
+  | {
+      type: "aligned";
+      projectId: string;
+      language: string;
+      originals: Caption[];
+      captions: Caption[];
+    }
   | {
       type: "translation";
       projectId: string;
@@ -57,6 +70,8 @@ export type Requests = {
   };
   download: { input: { url: string; projectId: string }; output: string };
   transcribe: { input: Project; output: string };
+  realign: { input: { project: Project; ids: string[] }; output: string };
+  checkSpeech: { input: void; output: string };
   translate: { input: Project; output: string };
   cancel: { input: string; output: void };
   export: {

@@ -10,7 +10,8 @@ export const CaptionSchema = z
     error: z.string().optional(),
     alignment: z
       .object({
-        method: z.literal("whisper-dtw"),
+        method: z.enum(["whisper-dtw", "whisperx"]),
+        missingWords: z.array(z.string()).optional(),
         needsReview: z.boolean(),
         tokens: z.array(
           z.object({
@@ -120,7 +121,10 @@ export function split(c: Caption, at: number, id: string): Caption[] {
         {
           ...c,
           end: closest.time,
-          source: first.map((t) => t.text).join("").trim(),
+          source: first
+            .map((t) => t.text)
+            .join("")
+            .trim(),
           target: "",
           status: "empty",
           alignment: { ...c.alignment!, tokens: first },
@@ -129,7 +133,10 @@ export function split(c: Caption, at: number, id: string): Caption[] {
           ...c,
           id,
           start: closest.time,
-          source: second.map((t) => t.text).join("").trim(),
+          source: second
+            .map((t) => t.text)
+            .join("")
+            .trim(),
           target: "",
           status: "empty",
           alignment: { ...c.alignment!, tokens: second },

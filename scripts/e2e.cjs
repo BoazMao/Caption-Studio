@@ -179,6 +179,11 @@ const root = path.resolve(__dirname, ".."),
     await page
       .getByLabel("Translation caption 1", { exact: true })
       .fill("Un vídeo real, un subtítulo editable.");
+    assert.equal(await page.locator(".lane").count(), 1);
+    assert.equal(await page.locator(".lane .clip").count(), 1);
+    assert.ok(
+      (await page.locator(".lane .clip").innerText()).includes("Un vídeo real"),
+    );
     const projectFile = path.join(work, "roundtrip.captionproj");
     await app.evaluate(({ dialog }, file) => {
       dialog.showSaveDialog = async () => ({ canceled: false, filePath: file });

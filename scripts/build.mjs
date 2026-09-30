@@ -24,3 +24,4 @@ await build({
   outfile: "dist/renderer.js",
 });
 await copyFile("src/renderer/index.html", "dist/index.html");
+await copyFile("scripts/whisperx_worker.py", "dist/whisperx_worker.py");

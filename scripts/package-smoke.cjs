@@ -42,6 +42,25 @@ const root = path.resolve(__dirname, ".."),
       persisted.ffprobe !== "$BUNDLED_FFPROBE"
     )
       throw Error("The packaged tool selection was saved as a temporary path");
+    await page.evaluate(() => {
+      window.speechCheck = null;
+      window.studio.onEvent((e) => {
+        if (e.type === "job" && e.job.kind === "WhisperX setup")
+          window.speechCheck = e.job;
+      });
+      return window.studio.call("checkSpeech");
+    });
+    await page.waitForFunction(
+      () => window.speechCheck && window.speechCheck.state !== "running",
+      null,
+      { timeout: 120000 },
+    );
+    const speech = await page.evaluate(() => window.speechCheck);
+    if (speech.state !== "done")
+      throw Error("Packaged WhisperX worker failed: " + speech.message);
+    console.log(
+      "PASS: packaged WhisperX worker imports the installed Python runtime",
+    );
     await app.evaluate(
       ({ dialog }, file) => {
         dialog.showOpenDialog = async () => ({

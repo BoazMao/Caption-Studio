@@ -2,7 +2,7 @@ name: Windows release
 
 on:
   push:
-    branches: [codex/release-v0.1.0]
+    branches: [codex/release-v0.1.1]
     tags: ["v*"]
   workflow_dispatch:
     inputs:
@@ -25,7 +25,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.ref || (startsWith(github.ref, 'refs/tags/') && github.ref) || 'c7256a2a397bb1f7a1e05b4f387f813225f67e5c' }}
+          ref: ${{ inputs.ref || github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
@@ -45,13 +45,17 @@ jobs:
           npm run test:e2e
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Build unpackaged Windows app
-        run: node node_modules/electron-builder/cli.js --win dir --x64 --publish never
+        run: |
+          npm run prepare:tools
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          node node_modules/electron-builder/cli.js --win dir --x64 --publish never
       - name: Smoke test distributed app
         shell: pwsh
         run: |
           @'
           const { _electron: electron } = require('playwright');
           const assert = require('node:assert/strict');
+          const { execFileSync } = require('node:child_process');
           const fs = require('node:fs/promises');
           const path = require('node:path');
           const root = process.cwd();
@@ -69,10 +73,12 @@ jobs:
               assert.equal(await page.title(), 'Raccoon Studio');
               await page.waitForFunction(() => document.querySelector('img.logo')?.naturalWidth > 0);
               const settings = await page.evaluate(() => window.studio.call('settings'));
-              for (const key of ['ffmpeg', 'ffprobe']) {
+              for (const key of ['ffmpeg', 'ffprobe', 'ytdlp', 'whisper']) {
                 assert.ok(settings[key].includes('resources'), key + ' must be bundled');
                 await fs.access(settings[key]);
               }
+              execFileSync(settings.ytdlp, ['--version'], { windowsHide: true });
+              execFileSync(settings.whisper, ['--help'], { windowsHide: true, stdio: 'pipe' });
               await app.evaluate(({ dialog }, file) => {
                 dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] });
               }, path.join(root, '.tools', 'test-work', 'e2e', 'real video & audio.mp4'));
@@ -112,11 +118,11 @@ jobs:
 
           **Run:** Download the Windows x64 ZIP, extract the entire archive, and launch `win-unpacked/Raccoon Studio.exe`. Keep all extracted files together. Node.js is not needed to run this build. The Windows executable is unsigned.
 
-          **Included:** Electron application, FFmpeg, FFprobe, and the WhisperX worker.
+          **Included:** Electron application, FFmpeg, FFprobe, yt-dlp, whisper.cpp CPU fallback with its DLLs, and the WhisperX worker. The fallback requires a separately selected GGML model.
 
-          **External requirements:** For transcription, install 64-bit Python 3.10–3.13 with WhisperX 3.8.6 and select that Python executable in Settings. Follow the included WHISPERX_SETUP.md. Recognition and alignment models download on first use; default ASR is medium on CPU. Model caches and Python are not bundled. For URL imports, install yt-dlp.exe and set its path. Translation requires an OpenAI-compatible endpoint, an exact model ID, and an API key where required.
+          **External requirements:** For WhisperX transcription, install 64-bit Python 3.10–3.13 with WhisperX 3.8.6 and select that Python executable in Settings. Follow the included WHISPERX_SETUP.md. Recognition and alignment models download on first use; default ASR is medium on CPU. Model caches and Python are not bundled. Translation requires an OpenAI-compatible endpoint, an exact model ID, and an API key where required.
 
-          **Validation:** 22 caption/persistence/alignment/profile tests, real-video Electron workflow checks, and distributed-app playback/waveform/icon smoke checks. GPU operation and live-provider translation quality were not benchmarked. Check aligned captions and translations before final export.
+          **Validation:** 24 caption/persistence/alignment/profile/tool-selection tests, real-video Electron workflow checks, and distributed-app tool/playback/waveform/icon smoke checks. GPU operation and live-provider translation quality were not benchmarked. Check aligned captions and translations before final export.
 
           SHA256SUMS.txt verifies the Windows ZIP. FFmpeg licensing information is included under resources/tools.
           '@ | Set-Content -LiteralPath .tools/release-notes.md -Encoding utf8

@@ -1,6 +1,7 @@
 const { _electron: electron } = require("playwright");
 const path = require("node:path");
 const fs = require("node:fs/promises");
+const { execFileSync } = require("node:child_process");
 const root = path.resolve(__dirname, ".."),
   work = path.join(root, ".tools", "test-work");
 (async () => {
@@ -8,7 +9,12 @@ const root = path.resolve(__dirname, ".."),
   await fs.mkdir(profile, { recursive: true });
   await fs.writeFile(
     path.join(profile, "settings.json"),
-    JSON.stringify({ ffmpeg: "ffmpeg", ffprobe: "ffprobe" }),
+    JSON.stringify({
+      ffmpeg: "ffmpeg",
+      ffprobe: "ffprobe",
+      ytdlp: "yt-dlp",
+      whisper: "whisper-cli",
+    }),
   );
   const app = await electron.launch({
     executablePath: path.join(root, "release/win-unpacked/Raccoon Studio.exe"),
@@ -28,6 +34,16 @@ const root = path.resolve(__dirname, ".."),
       .getByRole("button", { name: "Open local video", exact: true })
       .waitFor();
     const tools = await page.evaluate(() => window.studio.call("settings"));
+    for (const key of ["ytdlp", "whisper"]) {
+      if (!tools[key].includes("resources"))
+        throw Error(`${key} was not bundled`);
+      await fs.access(tools[key]);
+    }
+    execFileSync(tools.ytdlp, ["--version"], { windowsHide: true });
+    execFileSync(tools.whisper, ["--help"], {
+      windowsHide: true,
+      stdio: "pipe",
+    });
     if (
       !tools.ffmpeg.includes("resources") ||
       !tools.ffprobe.includes("resources")
@@ -44,7 +60,9 @@ const root = path.resolve(__dirname, ".."),
     );
     if (
       persisted.ffmpeg !== "$BUNDLED_FFMPEG" ||
-      persisted.ffprobe !== "$BUNDLED_FFPROBE"
+      persisted.ffprobe !== "$BUNDLED_FFPROBE" ||
+      persisted.ytdlp !== "$BUNDLED_YTDLP" ||
+      persisted.whisper !== "$BUNDLED_WHISPER"
     )
       throw Error("The packaged tool selection was saved as a temporary path");
     await page.evaluate(() => {

@@ -20,6 +20,7 @@ import { Jobs, run } from "./jobs";
 import { whisperXJob } from "./whisperx";
 import { readProject, writeProject } from "./storage";
 import { migrateProfile } from "./profile";
+import { toolDefaults, restoreTool, persistTool } from "./tools";
 protocol.registerSchemesAsPrivileged([
   {
     scheme: "media",
@@ -118,31 +119,8 @@ function progress(duration: number, update: (n: number, m: string) => void) {
   };
 }
 async function setup() {
-  const shippedTool = (name: "ffmpeg.exe" | "ffprobe.exe") => {
-    const packaged = path.join(process.resourcesPath, "tools", name);
-    const development =
-      name === "ffmpeg.exe"
-        ? path.join(app.getAppPath(), "node_modules", "ffmpeg-static", name)
-        : path.join(
-            app.getAppPath(),
-            "node_modules",
-            "ffprobe-static",
-            "bin",
-            "win32",
-            "x64",
-            name,
-          );
-    return existsSync(packaged)
-      ? packaged
-      : existsSync(development)
-        ? development
-        : name.slice(0, -4);
-  };
   const defaults: Settings = {
-    ffmpeg: shippedTool("ffmpeg.exe"),
-    ffprobe: shippedTool("ffprobe.exe"),
-    ytdlp: "yt-dlp",
-    whisper: "whisper-cli",
+    ...toolDefaults(process.resourcesPath, app.getAppPath(), existsSync),
     modelPath: "",
     speechEngine: "whisperx",
     whisperxPython: (() => {
@@ -167,14 +145,10 @@ async function setup() {
     settings = {
       ...defaults,
       ...raw,
-      ffmpeg:
-        raw.ffmpeg === "ffmpeg" || raw.ffmpeg === "$BUNDLED_FFMPEG"
-          ? defaults.ffmpeg
-          : raw.ffmpeg || defaults.ffmpeg,
-      ffprobe:
-        raw.ffprobe === "ffprobe" || raw.ffprobe === "$BUNDLED_FFPROBE"
-          ? defaults.ffprobe
-          : raw.ffprobe || defaults.ffprobe,
+      ffmpeg: restoreTool("ffmpeg", raw.ffmpeg, defaults.ffmpeg),
+      ffprobe: restoreTool("ffprobe", raw.ffprobe, defaults.ffprobe),
+      ytdlp: restoreTool("ytdlp", raw.ytdlp, defaults.ytdlp),
+      whisper: restoreTool("whisper", raw.whisper, defaults.whisper),
       apiKey:
         raw.secret && safeStorage.isEncryptionAvailable()
           ? safeStorage.decryptString(Buffer.from(raw.secret, "base64"))
@@ -216,16 +190,10 @@ async function setup() {
       settingsFile(),
       JSON.stringify({
         ...rest,
-        ffmpeg:
-          path.normalize(rest.ffmpeg).toLowerCase() ===
-          path.normalize(defaults.ffmpeg).toLowerCase()
-            ? "$BUNDLED_FFMPEG"
-            : rest.ffmpeg,
-        ffprobe:
-          path.normalize(rest.ffprobe).toLowerCase() ===
-          path.normalize(defaults.ffprobe).toLowerCase()
-            ? "$BUNDLED_FFPROBE"
-            : rest.ffprobe,
+        ffmpeg: persistTool("ffmpeg", rest.ffmpeg, defaults.ffmpeg),
+        ffprobe: persistTool("ffprobe", rest.ffprobe, defaults.ffprobe),
+        ytdlp: persistTool("ytdlp", rest.ytdlp, defaults.ytdlp),
+        whisper: persistTool("whisper", rest.whisper, defaults.whisper),
         secret:
           apiKey && safeStorage.isEncryptionAvailable()
             ? safeStorage.encryptString(apiKey).toString("base64")

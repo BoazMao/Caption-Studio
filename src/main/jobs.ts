@@ -57,6 +57,7 @@ export function run(
   signal: AbortSignal,
   onText: (text: string) => void = () => {},
   onBinary?: (data: Buffer) => void,
+  env?: NodeJS.ProcessEnv,
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     if (signal.aborted) return reject(Error("Cancelled"));
@@ -67,6 +68,7 @@ export function run(
       shell: false,
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"],
+      env: env ? { ...process.env, ...env } : process.env,
     });
     const cancel = () => {
       if (child.pid) {

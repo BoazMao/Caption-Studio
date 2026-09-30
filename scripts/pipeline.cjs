@@ -137,7 +137,9 @@ const root = path.resolve(__dirname, ".."),
             }),
         modelPath: path.join(assets, "ggml-tiny.en.bin"),
         speechEngine: process.env.TEST_WHISPERX ? "whisperx" : "whispercpp",
-        whisperxPython: path.join(root, ".tools/whisperx/Scripts/python.exe"),
+        whisperxPython:
+          process.env.TEST_WHISPERX_PYTHON ||
+          path.join(root, ".tools/whisperx/Scripts/python.exe"),
         whisperxModel: "tiny.en",
         whisperxDevice: "cpu",
         whisperxCache: path.join(assets, "whisperx-models"),

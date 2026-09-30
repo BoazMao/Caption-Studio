@@ -343,6 +343,22 @@ function App() {
       setInitialized(true);
     });
     return api.onEvent((e) => {
+      if (e.type === "speechInstalled") {
+        setSettings((prev) =>
+          prev
+            ? {
+                ...prev,
+                whisperxPython: e.python,
+                speechEngine: "whisperx",
+                whisperxDevice: "cpu",
+              }
+            : prev,
+        );
+        setNotice(
+          "WhisperX installed and selected. Models download on first transcription.",
+        );
+        return;
+      }
       if (e.type === "closing") {
         void attempt(async () => {
           if (
@@ -944,11 +960,33 @@ function App() {
               </label>
             ))}
           <p>
-            WhisperX requires Python with WhisperX installed. First
-            transcription downloads the selected model and the language
-            alignment model into the cache. Existing GGML files cannot be used
-            by WhisperX.
+            Install WhisperX here without installing Python yourself. CPU setup
+            downloads about 600 MB and needs at least 6.5 GB of free disk space
+            during installation. First transcription downloads the selected
+            model and the language alignment model into the cache. Existing GGML
+            files cannot be used by WhisperX.
           </p>
+          <button
+            disabled={jobs.some(
+              (job) =>
+                job.kind === "WhisperX installation" && job.state === "running",
+            )}
+            onClick={() =>
+              void attempt(async () => {
+                await api.call("installSpeech", undefined);
+                setNotice(
+                  "Installing WhisperX; see background tasks for progress and cancellation",
+                );
+              })
+            }
+          >
+            {jobs.some(
+              (job) =>
+                job.kind === "WhisperX installation" && job.state === "running",
+            )
+              ? "Installing WhisperX…"
+              : "Install WhisperX"}
+          </button>
           <button
             onClick={() =>
               void attempt(async () => {

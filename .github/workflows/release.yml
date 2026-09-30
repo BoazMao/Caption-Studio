@@ -1,0 +1,133 @@
+name: Windows release
+
+on:
+  push:
+    branches: [codex/release-v0.1.0]
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Source commit or tag to release
+        default: main
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: raccoon-windows-release
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || (startsWith(github.ref, 'refs/tags/') && github.ref) || 'c7256a2a397bb1f7a1e05b4f387f813225f67e5c' }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Check types and caption operations
+        run: |
+          npm run typecheck
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          npm test
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Build and verify editor workflow
+        run: |
+          npm run build
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          npm run test:e2e
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Build unpackaged Windows app
+        run: node node_modules/electron-builder/cli.js --win dir --x64 --publish never
+      - name: Smoke test distributed app
+        shell: pwsh
+        run: |
+          @'
+          const { _electron: electron } = require('playwright');
+          const assert = require('node:assert/strict');
+          const fs = require('node:fs/promises');
+          const path = require('node:path');
+          const root = process.cwd();
+          (async () => {
+            const profile = path.join(root, '.tools', 'release-profile');
+            await fs.mkdir(profile, { recursive: true });
+            const app = await electron.launch({
+              executablePath: path.join(root, 'release', 'win-unpacked', 'Raccoon Studio.exe'),
+              args: ['--user-data-dir=' + profile],
+              env: Object.fromEntries(Object.entries(process.env).filter(([key]) => key !== 'ELECTRON_RUN_AS_NODE')),
+            });
+            try {
+              const page = await app.firstWindow();
+              await page.getByRole('button', { name: 'Open local video', exact: true }).waitFor();
+              assert.equal(await page.title(), 'Raccoon Studio');
+              await page.waitForFunction(() => document.querySelector('img.logo')?.naturalWidth > 0);
+              const settings = await page.evaluate(() => window.studio.call('settings'));
+              for (const key of ['ffmpeg', 'ffprobe']) {
+                assert.ok(settings[key].includes('resources'), key + ' must be bundled');
+                await fs.access(settings[key]);
+              }
+              await app.evaluate(({ dialog }, file) => {
+                dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] });
+              }, path.join(root, '.tools', 'test-work', 'e2e', 'real video & audio.mp4'));
+              await page.getByRole('button', { name: 'Open local video', exact: true }).click();
+              await page.waitForFunction(() => document.querySelector('video')?.readyState >= 2);
+              await page.getByRole('button', { name: 'Play', exact: true }).click();
+              await page.waitForFunction(() => document.querySelector('video').currentTime > 0.2);
+              await page.getByRole('button', { name: 'Pause', exact: true }).click();
+              await page.waitForFunction(() => !document.querySelector('.wave-label'));
+              console.log('PASS: distributed title, icon, bundled tools, playback and waveform');
+            } finally { await app.close(); }
+          })().catch(error => { console.error(error); process.exitCode = 1; });
+          '@ | Set-Content -LiteralPath .tools/release-smoke.cjs -Encoding utf8
+          node .tools/release-smoke.cjs
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Create Windows archive and checksums
+        shell: pwsh
+        run: |
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $asset = "Raccoon-Studio-$version-win-x64.zip"
+          Copy-Item -LiteralPath README.md,WHISPERX_SETUP.md,LICENSE -Destination release/win-unpacked
+          New-Item -ItemType Directory -Path release/win-unpacked/scripts -Force | Out-Null
+          Copy-Item -LiteralPath scripts/setup-whisperx.ps1,scripts/requirements-whisperx.txt -Destination release/win-unpacked/scripts
+          Compress-Archive -Path release/win-unpacked -DestinationPath "release/$asset" -CompressionLevel Optimal
+          $hash = (Get-FileHash -LiteralPath "release/$asset" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $asset" | Set-Content -LiteralPath release/SHA256SUMS.txt -Encoding ascii
+          "RELEASE_VERSION=$version" >> $env:GITHUB_ENV
+          "RELEASE_ASSET=$asset" >> $env:GITHUB_ENV
+          "RELEASE_COMMIT=$(git rev-parse HEAD)" >> $env:GITHUB_ENV
+      - name: Publish GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          @'
+          Raccoon Studio is a Windows desktop subtitle editor with local WhisperX transcription and forced alignment, waveform caption editing, linked source/translation tracks, review, project recovery, and separate SRT export.
+
+          **Run:** Download the Windows x64 ZIP, extract the entire archive, and launch `win-unpacked/Raccoon Studio.exe`. Keep all extracted files together. Node.js is not needed to run this build. The Windows executable is unsigned.
+
+          **Included:** Electron application, FFmpeg, FFprobe, and the WhisperX worker.
+
+          **External requirements:** For transcription, install 64-bit Python 3.10–3.13 with WhisperX 3.8.6 and select that Python executable in Settings. Follow the included WHISPERX_SETUP.md. Recognition and alignment models download on first use; default ASR is medium on CPU. Model caches and Python are not bundled. For URL imports, install yt-dlp.exe and set its path. Translation requires an OpenAI-compatible endpoint, an exact model ID, and an API key where required.
+
+          **Validation:** 22 caption/persistence/alignment/profile tests, real-video Electron workflow checks, and distributed-app playback/waveform/icon smoke checks. GPU operation and live-provider translation quality were not benchmarked. Check aligned captions and translations before final export.
+
+          SHA256SUMS.txt verifies the Windows ZIP. FFmpeg licensing information is included under resources/tools.
+          '@ | Set-Content -LiteralPath .tools/release-notes.md -Encoding utf8
+          gh release create "v$env:RELEASE_VERSION" "release/$env:RELEASE_ASSET" release/SHA256SUMS.txt --repo "${{ github.repository }}" --target $env:RELEASE_COMMIT --title "Raccoon Studio $env:RELEASE_VERSION" --notes-file .tools/release-notes.md
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Preserve verification screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-release-verification
+          path: |
+            verification.png
+            workflow-verification.png
+          if-no-files-found: ignore

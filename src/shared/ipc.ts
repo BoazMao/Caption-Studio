@@ -21,8 +21,10 @@ export type Job = {
   state: "running" | "done" | "failed" | "cancelled";
   progress: number;
   message: string;
+  cancellable?: boolean;
 };
 export type Event =
+  | { type: "speechInstalled"; python: string }
   | { type: "closing" }
   | { type: "job"; job: Job }
   | { type: "wave"; projectId: string; peaks: number[] }
@@ -84,6 +86,7 @@ export type Requests = {
   };
   realign: { input: { project: Project; ids: string[] }; output: string };
   checkSpeech: { input: void; output: string };
+  installSpeech: { input: void; output: string };
   translate: { input: Project; output: string };
   cancel: { input: string; output: void };
   export: {

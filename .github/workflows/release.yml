@@ -120,9 +120,9 @@ jobs:
 
           **Included:** Electron application, FFmpeg, FFprobe, yt-dlp, whisper.cpp CPU fallback with its DLLs, and the WhisperX worker. The fallback requires a separately selected GGML model.
 
-          **External requirements:** For WhisperX transcription, install 64-bit Python 3.10–3.13 with WhisperX 3.8.6 and select that Python executable in Settings. Follow the included WHISPERX_SETUP.md. Recognition and alignment models download on first use; default ASR is medium on CPU. Model caches and Python are not bundled. Translation requires an OpenAI-compatible endpoint, an exact model ID, and an API key where required.
+          **External requirements:** For WhisperX transcription, open Settings and click Install WhisperX. The app downloads a private Python 3.12.14 and CPU WhisperX 3.8.6 environment, verifies it and selects it automatically. Allow at least 6.5 GB free disk space; no separate Python installation is needed. Custom/GPU environments remain selectable. Follow the included WHISPERX_SETUP.md. Recognition and alignment models download on first use; default ASR is medium on CPU. Model caches and Python are not bundled. Translation requires an OpenAI-compatible endpoint, an exact model ID, and an API key where required.
 
-          **Validation:** 24 caption/persistence/alignment/profile/tool-selection tests, real-video Electron workflow checks, and distributed-app tool/playback/waveform/icon smoke checks. GPU operation and live-provider translation quality were not benchmarked. Check aligned captions and translations before final export.
+          **Validation:** 27 caption/persistence/alignment/profile/tool-selection/installer tests, real-video Electron workflow checks, and distributed-app tool/playback/waveform/icon smoke checks. GPU operation and live-provider translation quality were not benchmarked. Check aligned captions and translations before final export.
 
           SHA256SUMS.txt verifies the Windows ZIP. FFmpeg licensing information is included under resources/tools.
           '@ | Set-Content -LiteralPath .tools/release-notes.md -Encoding utf8

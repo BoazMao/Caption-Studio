@@ -33,6 +33,11 @@ const root = path.resolve(__dirname, ".."),
     await page
       .getByRole("button", { name: "Open local video", exact: true })
       .waitFor();
+    await page.getByRole("button", { name: /^⚙ Settings$/ }).click();
+    await page
+      .getByRole("button", { name: "Install WhisperX", exact: true })
+      .waitFor();
+    await page.getByRole("button", { name: /^⚙ Settings$/ }).click();
     const tools = await page.evaluate(() => window.studio.call("settings"));
     for (const key of ["ytdlp", "whisper"]) {
       if (!tools[key].includes("resources"))

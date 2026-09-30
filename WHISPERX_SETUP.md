@@ -2,7 +2,17 @@
 
 WhisperX is the default speech engine. The existing whisper.cpp engine remains selectable as a legacy fallback. Existing projects, caption IDs, translations and review states are preserved.
 
-## Windows CPU setup
+## One-click Windows CPU setup
+
+In the new source/unpackaged build, open **Settings → Install WhisperX**. This downloads a checksum-verified uv installer, private Python 3.12.14, CPU PyTorch/torchaudio 2.8.0, torchvision 0.23.0, WhisperX 3.8.6, and Transformers 4.57.6. A setup check imports recognition and alignment modules before activation. The selected engine, Python executable and CPU device are saved automatically. It does not change system Python, PATH or registry configuration.
+
+Progress and cancellation appear in the task panel. Once verification succeeds, the brief final activation phase disables Cancel so a completed activation cannot be reported as cancelled. Closing the app waits for activation or cancelled-job cleanup before exiting. Repeated clicks do not start a second simultaneous installation. Failed/cancelled installations remove their incomplete environment and retain the previous active runtime. Reinstall creates and verifies a new environment before selecting it; previous successful environments remain available on disk.
+
+Internet access and at least 6.5 GB free disk space are required. Expect approximately 600 MB of dependency downloads and 2.3 GB installed, before models. The managed runtime is in the app's user-data folder under `runtime/whisperx`. No separate Python installation, administrator access, or API key is required. Model downloads occur on first transcription, not during runtime installation. The installer selects CPU; it does not install CUDA support.
+
+Published v0.1.1 does not include this button; use the manual setup below with that release.
+
+## Manual or GPU environment
 
 Install 64-bit Python 3.10–3.13, then run from the project directory:
 
@@ -10,7 +20,7 @@ Install 64-bit Python 3.10–3.13, then run from the project directory:
 powershell -ExecutionPolicy Bypass -File scripts/setup-whisperx.ps1
 ```
 
-The script creates `.tools/whisperx` and installs WhisperX 3.8.6. To select a specific Python installation, pass `-Python 'C:\path\to\python.exe'`. In Settings, choose **WhisperX**, point **WhisperX Python executable** to `.tools\whisperx\Scripts\python.exe`, select **CPU**, and click **Check WhisperX setup**. The unpacked app includes the worker script; Python and the models remain external prerequisites.
+The script creates `.tools/whisperx` and installs WhisperX 3.8.6. To select a specific Python installation, pass `-Python 'C:\path\to\python.exe'`. In Settings, choose **WhisperX**, point **WhisperX Python executable** to `.tools\whisperx\Scripts\python.exe`, select **CPU**, and click **Check WhisperX setup**. The unpacked app includes the worker script; this manual route requires your own Python installation. Models are downloaded separately.
 
 The model field accepts a faster-whisper model ID (for example `medium`, `large-v3`, `tiny.en`) or a local CTranslate2 model directory. GGML `.bin` files from whisper.cpp are not compatible. Use a multilingual model for Chinese. The default model is `medium`; smaller models trade recognition quality for lower CPU and memory requirements.
 
@@ -51,3 +61,7 @@ Projects embed `speechRuns`: full returned transcription results, full per-input
 Aligned sentence times receive 50 ms padding at each end, clipped to media boundaries. Adjacent non-overlapping sentences share short gaps so padding cannot introduce overlap. Actual overlapping speech remains unchanged and is flagged by the editor. Missing word times stay missing; unavailable sentence times use an explicitly flagged approximate input window for review. Unusable results are retained with an import error and do not replace existing captions.
 
 When captions exist, choose **Replace captions** or **Add captions** before transcription. Both changes support Undo/Redo. If captions change during replacement, results are archived but current edits are preserved. Raw archives increase project size and remain out of SRT exports. Previously saved projects cannot recover raw results that were discarded by earlier app versions; transcribe again to create the new archives.
+
+## Installer verification
+
+`npm run test:install` runs an opt-in network test that performs an actual installation in an isolated ignored test profile, checks duplicate prevention and automatic selection, and reopens the app to verify persistence. Build the app first. After a successful installation test, set `TEST_INSTALL_REUSE=1` to repeat just the runtime-selection and Settings/reopen checks without downloading again. Unit tests cover failed verification, cancellation during dependency installation, preservation of the previous runtime, and invalid manifest paths.

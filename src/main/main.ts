@@ -21,6 +21,7 @@ import { whisperXJob } from "./whisperx";
 import { readProject, writeProject } from "./storage";
 import { migrateProfile } from "./profile";
 import { toolDefaults, restoreTool, persistTool } from "./tools";
+import { installWhisperX, managedPython } from "./install-whisperx";
 protocol.registerSchemesAsPrivileged([
   {
     scheme: "media",
@@ -119,6 +120,8 @@ function progress(duration: number, update: (n: number, m: string) => void) {
   };
 }
 async function setup() {
+  const runtimeRoot = path.join(data(), "runtime", "whisperx");
+  const managed = await managedPython(runtimeRoot);
   const defaults: Settings = {
     ...toolDefaults(process.resourcesPath, app.getAppPath(), existsSync),
     modelPath: "",
@@ -130,7 +133,7 @@ async function setup() {
           : app.getAppPath(),
         ".tools/whisperx/Scripts/python.exe",
       );
-      return existsSync(candidate) ? candidate : "python";
+      return managed || (existsSync(candidate) ? candidate : "python");
     })(),
     whisperxModel: "medium",
     whisperxDevice: "cpu",
@@ -149,6 +152,10 @@ async function setup() {
       ffprobe: restoreTool("ffprobe", raw.ffprobe, defaults.ffprobe),
       ytdlp: restoreTool("ytdlp", raw.ytdlp, defaults.ytdlp),
       whisper: restoreTool("whisper", raw.whisper, defaults.whisper),
+      whisperxPython:
+        raw.whisperxPython === "python" || !raw.whisperxPython
+          ? defaults.whisperxPython
+          : raw.whisperxPython,
       apiKey:
         raw.secret && safeStorage.isEncryptionAvailable()
           ? safeStorage.decryptString(Buffer.from(raw.secret, "base64"))
@@ -185,6 +192,9 @@ async function setup() {
         apiKey: z.string(),
       })
       .parse(input);
+    await persistSettings();
+  });
+  async function persistSettings() {
     const { apiKey, ...rest } = settings;
     await writeFile(
       settingsFile(),
@@ -200,7 +210,7 @@ async function setup() {
             : undefined,
       }),
     );
-  });
+  }
   handle("pick", async (kind) => {
     const result = await dialog.showOpenDialog(window, {
       properties: ["openFile"],
@@ -411,6 +421,31 @@ async function setup() {
   const workerPath = app.isPackaged
     ? path.join(process.resourcesPath, "workers", "whisperx_worker.py")
     : path.join(__dirname, "whisperx_worker.py");
+  let installing: string | undefined;
+  handle("installSpeech", () => {
+    if (installing && jobs.active.has(installing)) return installing;
+    installing = jobs.start(
+      "WhisperX installation",
+      async (signal, update, beginCommit) => {
+        const python = await installWhisperX(runtimeRoot, signal, update, {
+          beginCommit,
+        });
+        settings = {
+          ...settings,
+          whisperxPython: python,
+          speechEngine: "whisperx",
+          whisperxDevice: "cpu",
+        };
+        await persistSettings();
+        emit({ type: "speechInstalled", python });
+        update(
+          100,
+          "WhisperX installed. Models download on first transcription.",
+        );
+      },
+    );
+    return installing;
+  });
   handle("checkSpeech", () => {
     const config = { ...settings };
     return jobs.start("WhisperX setup", async (signal, update) => {
@@ -800,7 +835,7 @@ app.whenReady().then(async () => {
   window.webContents.on("will-navigate", (e) => e.preventDefault());
   await window.loadFile(path.join(__dirname, "index.html"));
 });
-app.on("window-all-closed", () => {
-  jobs.cancelAll();
+app.on("window-all-closed", async () => {
+  await jobs.cancelAllAndWait();
   app.quit();
 });

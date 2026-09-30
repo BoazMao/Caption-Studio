@@ -21,6 +21,7 @@
     "test": "tsx --test tests/*.test.ts",
     "test:e2e": "node scripts/e2e.cjs",
     "test:pipeline": "node scripts/pipeline.cjs",
+    "test:install": "node scripts/install-smoke.cjs",
     "format": "prettier --write src scripts tests",
     "package": "npm run prepare:tools && npm run build && electron-builder --win portable"
   },

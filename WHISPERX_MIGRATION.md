@@ -6,7 +6,7 @@ Implemented: default WhisperX adapter, cancellable transcription/forced alignmen
 
 ## Decision
 
-Move Caption Studio's default local transcription and alignment workflow to WhisperX. The current whisper.cpp DTW token timing is not accurate enough for the intended subtitle workflow. Keep whisper.cpp available during migration so existing setups remain usable; remove or demote it only after WhisperX passes the Windows and English/Chinese checks below.
+Move Raccoon Studio's default local transcription and alignment workflow to WhisperX. The current whisper.cpp DTW token timing is not accurate enough for the intended subtitle workflow. Keep whisper.cpp available during migration so existing setups remain usable; remove or demote it only after WhisperX passes the Windows and English/Chinese checks below.
 
 ## Target workflow
 

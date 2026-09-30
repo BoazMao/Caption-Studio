@@ -1,6 +1,8 @@
-# Caption Studio
+# Raccoon Studio
 
 A Windows desktop subtitle editor built with Electron, React and TypeScript. The editor stays interactive during downloads, waveform extraction, transcription and translation.
+
+Source repository: [BoazMao/Raccoon-Studio](https://github.com/BoazMao/Raccoon-Studio). The app uses `assets/Raccoon.ico` for its workspace, window, and Windows executable icons.
 
 ## Run
 
@@ -11,7 +13,7 @@ npm ci
 npm run dev
 ```
 
-`npm run build` produces `dist/`. `npm start` launches that build. To rebuild the unpacked desktop app, run `npm run build` then `npx electron-builder --win dir`; launch `release/win-unpacked/Caption Studio.exe`. `npm run package` produces an unsigned portable Windows executable under `release/`. The portable executable includes the application and Electron; external media tools and Whisper models are configured separately.
+`npm run build` produces `dist/`. `npm start` launches that build. To rebuild the unpacked desktop app, run `npm run build` then `npx electron-builder --win dir`; launch `release/win-unpacked/Raccoon Studio.exe`. `npm run package` produces an unsigned portable Windows executable under `release/`. The portable executable includes the application and Electron; external media tools and Whisper models are configured separately.
 
 ## Configure external tools
 
@@ -65,7 +67,9 @@ Editing shortcuts are suppressed inside text fields, so typing and native text u
 
 Edits autosave after 700 ms of inactivity. Closing the window flushes the current project before quitting. Startup offers **Restore session**, and does not overwrite that recovery while the choice is pending. Autosave is separate from an explicitly saved project; Ctrl+S updates the named project.
 
-Electron's `userData` folder (normally `%APPDATA%/caption-studio`) contains:
+On first launch, Raccoon Studio copies existing settings and recovery projects from `%APPDATA%/caption-studio` without overwriting an existing Raccoon Studio profile. Existing media and model cache paths remain valid. Saved `.captionproj` files and legacy caption clipboard data remain compatible.
+
+Electron's `userData` folder (normally `%APPDATA%/raccoon-studio`) contains:
 
 - `settings.json`: paths, endpoint configuration and encrypted key.
 - `recovery.captionproj`: latest session recovery.
@@ -94,11 +98,11 @@ npm run build
 npm run test:e2e
 ```
 
-Twenty core tests cover real disk roundtrips and concurrent writes, timing validation, aligned split and edit invalidation, stale and racing translations, SRT output, shell metacharacters and real child-process cancellation. The Electron test generates a real H.264/AAC video with FFmpeg and checks playback, pause, seek, frame stepping, waveform readiness, caption edits, save/reopen, pointer dragging, split/merge and undo/redo.
+Twenty-two core tests cover real disk roundtrips and concurrent writes, timing validation, aligned split and edit invalidation, stale and racing translations, SRT output, shell metacharacters and real child-process cancellation. The Electron test generates a real H.264/AAC video with FFmpeg and checks playback, pause, seek, frame stepping, waveform readiness, caption edits, save/reopen, pointer dragging, split/merge and undo/redo.
 
 `npm run test:pipeline` additionally uses official tools and the public whisper.cpp `jfk.wav` sample. Place `yt-dlp.exe`, `jfk.wav`, `ggml-tiny.en.bin`, and `whisper/Release/whisper-cli.exe` with its DLLs under `.tools/test-assets/`. This ignored local folder travels with the checkout when it is moved. The integration test serves a local DASH stream, verifies actual separate-stream download and FFmpeg merging, runs actual whisper.cpp transcription in legacy mode (set `TEST_WHISPERX=1` for WhisperX recognition, forced alignment and re-alignment; see [WhisperX setup](WHISPERX_SETUP.md)) with editable caption import, then verifies translation failures/retries/review/export/cancellation against a local mock HTTP endpoint. It does not verify AI translation quality or any paid provider's credentials.
 
-Validated in this workspace: TypeScript checks, all twenty core tests, both Electron integration suites, and a clean npm dependency audit. Screenshots are saved as `verification.png` and `workflow-verification.png`.
+Validated in this workspace: TypeScript checks, all twenty-two core tests, both Electron integration suites, and a clean npm dependency audit. Screenshots are saved as `verification.png` and `workflow-verification.png`.
 
 ## Version-one limits
 

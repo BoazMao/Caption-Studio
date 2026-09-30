@@ -11,7 +11,7 @@ const root = path.resolve(__dirname, ".."),
     JSON.stringify({ ffmpeg: "ffmpeg", ffprobe: "ffprobe" }),
   );
   const app = await electron.launch({
-    executablePath: path.join(root, "release/win-unpacked/Caption Studio.exe"),
+    executablePath: path.join(root, "release/win-unpacked/Raccoon Studio.exe"),
     args: ["--user-data-dir=" + profile],
     env: Object.fromEntries(
       Object.entries(process.env).filter(([k]) => k !== "ELECTRON_RUN_AS_NODE"),
@@ -19,6 +19,11 @@ const root = path.resolve(__dirname, ".."),
   });
   try {
     const page = await app.firstWindow();
+    if ((await page.title()) !== "Raccoon Studio")
+      throw Error("Incorrect app title");
+    await page.waitForFunction(
+      () => document.querySelector("img.logo")?.naturalWidth > 0,
+    );
     await page
       .getByRole("button", { name: "Open local video", exact: true })
       .waitFor();

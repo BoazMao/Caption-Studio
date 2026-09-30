@@ -13,11 +13,20 @@ const caption = (id: string, start: number, end: number): Caption => ({
 test("clipboard paste preserves relative timing and tracks, with fresh IDs", () => {
   const originals = [caption("a", 2, 3), caption("b", 4, 6)];
   const text = JSON.stringify({
-    format: "caption-studio/1",
+    format: "raccoon-studio/1",
     targetLanguage: "Chinese",
     captions: originals,
   });
   const result = pasteCaptions(text, 10, 20, "Chinese");
+  assert.equal(
+    pasteCaptions(
+      text.replace("raccoon-studio/1", "caption-studio/1"),
+      10,
+      20,
+      "Chinese",
+    ).length,
+    2,
+  );
   assert.deepEqual(
     result.map((c) => [c.start, c.end, c.target, c.status]),
     [

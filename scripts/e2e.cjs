@@ -40,6 +40,10 @@ const root = path.resolve(__dirname, ".."),
   });
   try {
     const page = await app.firstWindow();
+    assert.equal(await page.title(), "Raccoon Studio");
+    await page.waitForFunction(
+      () => document.querySelector("img.logo")?.naturalWidth > 0,
+    );
     page.on("pageerror", (e) => console.error("PAGE ERROR", e));
     await page
       .getByRole("button", { name: "Open local video", exact: true })

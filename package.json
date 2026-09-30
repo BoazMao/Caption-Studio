@@ -1,8 +1,16 @@
 {
-  "name": "caption-studio",
+  "name": "raccoon-studio",
   "version": "0.1.0",
   "private": true,
-  "description": "Local-first subtitle workspace",
+  "description": "Raccoon Studio — local-first Windows subtitle editor",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BoazMao/Raccoon-Studio.git"
+  },
+  "homepage": "https://github.com/BoazMao/Raccoon-Studio#readme",
+  "bugs": {
+    "url": "https://github.com/BoazMao/Raccoon-Studio/issues"
+  },
   "main": "dist/main.cjs",
   "scripts": {
     "build": "node scripts/build.mjs",
@@ -35,8 +43,8 @@
     "typescript": "^5.8.3"
   },
   "build": {
-    "appId": "studio.caption.desktop",
-    "productName": "Caption Studio",
+    "appId": "studio.raccoon.desktop",
+    "productName": "Raccoon Studio",
     "compression": "store",
     "files": [
       "dist/**/*",
@@ -66,11 +74,16 @@
       {
         "from": "node_modules/ffprobe-static/LICENSE",
         "to": "tools/ffprobe-package.LICENSE"
+      },
+      {
+        "from": "assets/Raccoon.ico",
+        "to": "icons/Raccoon.ico"
       }
     ],
     "win": {
       "target": "portable",
-      "signAndEditExecutable": false
+      "signExecutable": false,
+      "icon": "assets/Raccoon.ico"
     },
     "directories": {
       "output": "release"

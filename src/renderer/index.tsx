@@ -122,7 +122,7 @@ function App() {
     await api.call(
       "clipboardWrite",
       JSON.stringify({
-        format: "caption-studio/1",
+        format: "raccoon-studio/1",
         targetLanguage: project.targetLanguage,
         captions,
       }),
@@ -147,7 +147,7 @@ function App() {
       throw Error(
         e instanceof Error && e.message.includes("do not fit")
           ? e.message
-          : "Copy caption blocks in Caption Studio before pasting.",
+          : "Copy caption blocks in Raccoon Studio before pasting.",
       );
     }
     commit((prev) => ({ ...prev, captions: [...prev.captions, ...captions] }));
@@ -647,9 +647,9 @@ function App() {
     <div className="app">
       <header>
         <div className="brand">
-          <b className="logo">≋</b>
+          <img className="logo" src="./Raccoon.ico" alt="" />
           <div>
-            Caption Studio<small>LOCAL-FIRST SUBTITLE WORKSPACE</small>
+            Raccoon Studio<small>LOCAL-FIRST SUBTITLE WORKSPACE</small>
           </div>
         </div>
         <div className="project-title">
@@ -1619,7 +1619,7 @@ function App() {
           {file
             ? "Project saved on disk"
             : "Project recovery autosaves locally"}{" "}
-          · Caption Studio 0.1
+          · Raccoon Studio 0.1
         </span>
       </footer>
     </div>

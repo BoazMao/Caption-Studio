@@ -114,6 +114,8 @@ type Dependencies = {
   runner?: typeof run;
   bootstrap?: typeof bootstrap;
   checkDisk?: boolean;
+  beginCommit?: () => void;
+  renameMarker?: typeof rename;
 };
 export async function installWhisperX(
   root: string,
@@ -227,7 +229,8 @@ export async function installWhisperX(
       "utf8",
     );
     signal.throwIfAborted();
-    await rename(temporary, marker);
+    dependencies.beginCommit?.();
+    await (dependencies.renameMarker || rename)(temporary, marker);
     return python;
   } catch (error) {
     await rm(owned(root, directory), { recursive: true, force: true });

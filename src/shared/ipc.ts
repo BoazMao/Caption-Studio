@@ -21,6 +21,7 @@ export type Job = {
   state: "running" | "done" | "failed" | "cancelled";
   progress: number;
   message: string;
+  cancellable?: boolean;
 };
 export type Event =
   | { type: "speechInstalled"; python: string }

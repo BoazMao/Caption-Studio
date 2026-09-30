@@ -2,13 +2,17 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import type { Job, Event } from "../shared/ipc";
 export class Jobs {
-  active = new Map<string, { controller: AbortController; job: Job }>();
+  active = new Map<
+    string,
+    { controller: AbortController; job: Job; done: Promise<void> }
+  >();
   constructor(private emit: (e: Event) => void) {}
   start(
     kind: string,
     run: (
       signal: AbortSignal,
       update: (progress: number, message: string) => void,
+      beginCommit: () => void,
     ) => Promise<void>,
   ) {
     const id = randomUUID(),
@@ -20,7 +24,8 @@ export class Jobs {
         progress: 0,
         message: "Starting…",
       };
-    this.active.set(id, { controller, job });
+    const entry = { controller, job, done: Promise.resolve() };
+    this.active.set(id, entry);
     const update = (progress: number, message: string) => {
       Object.assign(job, {
         progress: Math.max(0, Math.min(100, progress)),
@@ -28,8 +33,16 @@ export class Jobs {
       });
       this.emit({ type: "job", job: { ...job } });
     };
-    update(0, "Starting…");
-    void run(controller.signal, update)
+    const beginCommit = () => {
+      controller.signal.throwIfAborted();
+      job.cancellable = false;
+      update(95, "Finalizing installation…");
+    };
+    entry.done = Promise.resolve()
+      .then(() => {
+        controller.signal.throwIfAborted();
+        return run(controller.signal, update, beginCommit);
+      })
       .then(() => {
         job.state = controller.signal.aborted ? "cancelled" : "done";
         update(100, job.state === "done" ? "Complete" : "Cancelled");
@@ -42,13 +55,19 @@ export class Jobs {
         );
       })
       .finally(() => this.active.delete(id));
+    update(0, "Starting…");
     return id;
   }
   cancel(id: string) {
-    this.active.get(id)?.controller.abort();
+    const entry = this.active.get(id);
+    if (entry && entry.job.cancellable !== false) entry.controller.abort();
   }
   cancelAll() {
     for (const id of this.active.keys()) this.cancel(id);
+  }
+  async cancelAllAndWait() {
+    this.cancelAll();
+    await Promise.all([...this.active.values()].map((entry) => entry.done));
   }
 }
 export function run(

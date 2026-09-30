@@ -5,7 +5,7 @@ Tested on Windows x64 using Electron 44.4.5 and Node.js 24.19.0.
 | Check | Result |
 | --- | --- |
 | TypeScript (`tsc --noEmit`) | Passed |
-| Core automated tests | 25 passed, 0 failed |
+| Core automated tests | 27 passed, 0 failed |
 | Bundled download/fallback tools | Checksum-verified yt-dlp 2026.08.19 and whisper.cpp v1.7.6 CPU runtime; packaged metadata/download/merge/import, real tiny.en fallback transcription with DTW, translation retry/review, separate SRT and cancellation passed |
 | WhisperX size measurement | Current Python 3.12.14 / PyTorch 2.8.0+cpu installation plus base Python files: 2,320,171,526 bytes unpacked and 609,875,259 bytes ZIP-compressed (level 6), excluding downloaded recognition/alignment model caches. This measures a future bundle's approximate size, not a validated relocatable runtime. |
 | Dependency audit | 0 known vulnerabilities at installation/audit time |
@@ -44,4 +44,6 @@ These paths are relative to the project folder. The unpacked app includes FFmpeg
 
 ## Settings installer verification
 
-The one-click installer completed a real private Python 3.12.14 and WhisperX 3.8.6 CPU installation. Recognition/alignment module imports passed. The new runtime also passed the real tiny.en transcription, forced alignment, re-alignment, archive preservation, mocked translation transport and SRT export pipeline using cached models. All 25 unit tests and the real-video Electron editing workflow passed. Unit tests include verification failure and mid-install cancellation preserving the previous active runtime. `npm run test:install` is an optional network integration test; it downloads dependencies and needs at least 6.5 GB free disk space. Models are excluded from the runtime installation.
+The one-click installer completed a real private Python 3.12.14 and WhisperX 3.8.6 CPU installation. Recognition/alignment module imports passed. The new runtime also passed the real tiny.en transcription, forced alignment, re-alignment, archive preservation, mocked translation transport and SRT export pipeline using cached models. All 27 unit tests and the real-video Electron editing workflow passed. Unit tests include verification failure and mid-install cancellation preserving the previous active runtime. `npm run test:install` is an optional network integration test; it downloads dependencies and needs at least 6.5 GB free disk space. Models are excluded from the runtime installation.
+
+PR review regressions cover cancellation while marker rename/settings persistence are pending, and shutdown awaiting cancellation cleanup before exit. Final runtime activation disables Cancel briefly; shutdown waits for activation or cleanup to settle.

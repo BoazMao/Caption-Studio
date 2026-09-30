@@ -1636,7 +1636,10 @@ function App() {
                     : j.state}
                 </span>
                 {j.state === "running" && (
-                  <button onClick={() => void api.call("cancel", j.id)}>
+                  <button
+                    disabled={j.cancellable === false}
+                    onClick={() => void api.call("cancel", j.id)}
+                  >
                     Cancel
                   </button>
                 )}

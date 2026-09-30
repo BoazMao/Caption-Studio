@@ -424,21 +424,26 @@ async function setup() {
   let installing: string | undefined;
   handle("installSpeech", () => {
     if (installing && jobs.active.has(installing)) return installing;
-    installing = jobs.start("WhisperX installation", async (signal, update) => {
-      const python = await installWhisperX(runtimeRoot, signal, update);
-      settings = {
-        ...settings,
-        whisperxPython: python,
-        speechEngine: "whisperx",
-        whisperxDevice: "cpu",
-      };
-      await persistSettings();
-      emit({ type: "speechInstalled", python });
-      update(
-        100,
-        "WhisperX installed. Models download on first transcription.",
-      );
-    });
+    installing = jobs.start(
+      "WhisperX installation",
+      async (signal, update, beginCommit) => {
+        const python = await installWhisperX(runtimeRoot, signal, update, {
+          beginCommit,
+        });
+        settings = {
+          ...settings,
+          whisperxPython: python,
+          speechEngine: "whisperx",
+          whisperxDevice: "cpu",
+        };
+        await persistSettings();
+        emit({ type: "speechInstalled", python });
+        update(
+          100,
+          "WhisperX installed. Models download on first transcription.",
+        );
+      },
+    );
     return installing;
   });
   handle("checkSpeech", () => {
@@ -830,7 +835,7 @@ app.whenReady().then(async () => {
   window.webContents.on("will-navigate", (e) => e.preventDefault());
   await window.loadFile(path.join(__dirname, "index.html"));
 });
-app.on("window-all-closed", () => {
-  jobs.cancelAll();
+app.on("window-all-closed", async () => {
+  await jobs.cancelAllAndWait();
   app.quit();
 });

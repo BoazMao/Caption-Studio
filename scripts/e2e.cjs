@@ -419,25 +419,21 @@ const root = path.resolve(__dirname, ".."),
     const beforeText = await page
       .getByLabel("Source caption 1", { exact: true })
       .inputValue();
-    // Read the real current project via the app's own autosave recovery bridge.
-    let currentProject;
+    // Flush the current editor state instead of accepting an older autosave
+    // whose text matches but whose sub-millisecond timing is different.
+    const previousWrite = (await fs.stat(projectFile)).mtimeMs;
+    await page.getByRole("button", { name: /Save project/ }).click();
+    let flushed = false;
     for (let attempt = 0; attempt < 50; attempt++) {
-      currentProject = await page.evaluate(async (n) => {
-        const p = await window.studio.call("recover");
-        const rows = [...document.querySelectorAll(".caption-row")];
-        return p?.captions.length === n &&
-          rows.length === n &&
-          rows.every((row) => {
-            const c = p.captions.find((c) => c.id === row.id);
-            return c && c.source === row.querySelector("textarea").value;
-          })
-          ? p
-          : null;
-      }, beforeCount);
-      if (currentProject) break;
+      if ((await fs.stat(projectFile)).mtimeMs !== previousWrite) {
+        flushed = true;
+        break;
+      }
       await page.waitForTimeout(100);
     }
-    assert.ok(currentProject, "Autosave did not match the editor snapshot");
+    assert.ok(flushed, "Current editor snapshot was not saved");
+    const currentProject = JSON.parse(await fs.readFile(projectFile, "utf8"));
+    assert.equal(currentProject.captions.length, beforeCount);
     const replacement = {
       id: "new-sentence",
       start: 1,

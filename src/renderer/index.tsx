@@ -14,7 +14,7 @@ import {
 import type { Bridge, Job, Settings } from "../shared/ipc";
 import "./style.css";
 import { overlappingCaptions, pasteCaptions } from "../shared/editing";
-import { applyRealignment } from "../shared/whisperx";
+import { applyRealignment, applyTranscription } from "../shared/whisperx";
 declare global {
   interface Window {
     studio: Bridge;
@@ -54,6 +54,9 @@ function App() {
     }>(),
     [zoom, setZoom] = useState(1),
     [filter, setFilter] = useState("all"),
+    [transcribeMode, setTranscribeMode] = useState<"replace" | "add">(
+      "replace",
+    ),
     [historyVersion, setHistoryVersion] = useState(0),
     [saved, setSaved] = useState(""),
     [recovery, setRecovery] = useState<Project | null>(null),
@@ -367,9 +370,14 @@ function App() {
         commit((prev) => ({
           ...prev,
           captions: applyRealignment(prev.captions, e.originals, e.captions),
+          speechRuns: e.speechRun
+            ? [...(prev.speechRuns || []), e.speechRun]
+            : prev.speechRuns,
         }));
         setNotice(
-          "Alignment finished; edited captions were preserved. Check any sync warnings.",
+          e.speechRun?.importError
+            ? `Alignment output retained; could not update captions: ${e.speechRun.importError}`
+            : "Alignment finished; edited captions were preserved. Check any sync warnings.",
         );
       }
       if (e.type === "media") {
@@ -395,13 +403,22 @@ function App() {
         });
       }
       if (e.type === "captions") {
-        commit((prev) => ({
-          ...prev,
-          captions: [...prev.captions, ...e.captions].sort(
-            (a, b) => a.start - b.start,
-          ),
-        }));
-        setNotice(`${e.captions.length} captions added`);
+        if (e.language && e.language !== current.current.language) return;
+        const result = applyTranscription(
+          current.current,
+          e.captions,
+          e.mode || "add",
+          e.originals || [],
+          e.speechRun,
+        );
+        commit(result.project);
+        setNotice(
+          e.speechRun?.importError
+            ? `WhisperX output retained; could not import captions: ${e.speechRun.importError}`
+            : result.blocked
+              ? "Captions changed during transcription; your edits were preserved. New results are retained in the project. Undo edits or transcribe again to replace."
+              : `${e.captions.length} captions ${e.mode === "replace" ? "replaced (Undo available)" : "added"}`,
+        );
       }
       if (
         e.type === "translation" &&
@@ -1086,11 +1103,27 @@ function App() {
                 <option value="all">All captions</option>
                 <option value="review">Needs review</option>
               </select>
+              {p.captions.length > 0 && (
+                <select
+                  aria-label="Transcription import mode"
+                  value={transcribeMode}
+                  disabled={busy}
+                  onChange={(e) =>
+                    setTranscribeMode(e.target.value as "replace" | "add")
+                  }
+                >
+                  <option value="replace">Replace captions</option>
+                  <option value="add">Add captions</option>
+                </select>
+              )}
               <button
                 disabled={!p.media || busy}
                 onClick={() =>
                   void attempt(async () => {
-                    await api.call("transcribe", p);
+                    await api.call("transcribe", {
+                      project: p,
+                      mode: transcribeMode,
+                    });
                   })
                 }
               >
@@ -1315,6 +1348,7 @@ function App() {
             <button
               disabled={!past.current.length}
               onClick={undo}
+              aria-label="Undo"
               title="Ctrl+Z"
             >
               ↶
@@ -1322,6 +1356,7 @@ function App() {
             <button
               disabled={!future.current.length}
               onClick={redo}
+              aria-label="Redo"
               title="Ctrl+Shift+Z"
             >
               ↷

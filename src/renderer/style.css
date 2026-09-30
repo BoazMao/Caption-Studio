@@ -959,7 +959,6 @@ footer {
   background: #416e5bd9;
 }
 .lane .clip.overlap {
-  border-color: #ffc267;
   overflow: visible;
 }
 .clip > span:not(.handle):not(.overlap-warning) {

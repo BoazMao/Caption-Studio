@@ -303,6 +303,34 @@ const root = path.resolve(__dirname, ".."),
       await page.locator(".source-lane .overlap-warning").count(),
       2,
     );
+    const overlapStyles = await page
+      .locator(".source-lane .clip.overlap")
+      .evaluateAll((clips) =>
+        clips.map((c) => ({
+          selected: c.classList.contains("chosen"),
+          border: getComputedStyle(c).borderTopColor,
+          width: getComputedStyle(c).borderTopWidth,
+          warning: getComputedStyle(c.querySelector(".overlap-warning"))
+            .backgroundColor,
+        })),
+      );
+    assert.ok(overlapStyles.some((c) => !c.selected));
+    assert.ok(overlapStyles.some((c) => c.selected));
+    assert.ok(overlapStyles.every((c) => c.border !== c.warning));
+    assert.ok(
+      overlapStyles
+        .filter((c) => c.selected)
+        .every(
+          (c) =>
+            parseFloat(c.width) >
+              Math.max(
+                ...overlapStyles
+                  .filter((x) => !x.selected)
+                  .map((x) => parseFloat(x.width)),
+              ) && c.border === "rgb(188, 239, 220)",
+        ),
+      JSON.stringify(overlapStyles),
+    );
     await page.keyboard.press("Control+z");
     assert.equal(await page.locator(".caption-row").count(), initialCount);
     await page.keyboard.press("Control+Shift+z");
@@ -381,6 +409,104 @@ const root = path.resolve(__dirname, ".."),
     await page.getByLabel("Timeline zoom").fill("0");
     console.log(
       "PASS: waveform overlays/zoom, caption clipboard, multi-selection, overlap warnings, native text selection and undo/redo",
+    );
+    await page.getByLabel("Transcription import mode").selectOption("replace");
+    const beforeCount = await page.locator(".caption-row").count();
+    const beforeText = await page
+      .getByLabel("Source caption 1", { exact: true })
+      .inputValue();
+    // Read the real current project via the app's own autosave recovery bridge.
+    let currentProject;
+    for (let attempt = 0; attempt < 50; attempt++) {
+      currentProject = await page.evaluate(async (n) => {
+        const p = await window.studio.call("recover");
+        const rows = [...document.querySelectorAll(".caption-row")];
+        return p?.captions.length === n &&
+          rows.length === n &&
+          rows.every((row) => {
+            const c = p.captions.find((c) => c.id === row.id);
+            return c && c.source === row.querySelector("textarea").value;
+          })
+          ? p
+          : null;
+      }, beforeCount);
+      if (currentProject) break;
+      await page.waitForTimeout(100);
+    }
+    assert.ok(currentProject, "Autosave did not match the editor snapshot");
+    const replacement = {
+      id: "new-sentence",
+      start: 1,
+      end: 2,
+      source: "A complete new sentence.",
+      target: "",
+      status: "empty",
+    };
+    const run = {
+      id: "ui-run",
+      createdAt: "2026-09-30",
+      mode: "transcription",
+      raw: { custom: { retained: true } },
+      captions: [replacement],
+    };
+    await app.evaluate(
+      ({ BrowserWindow }, data) =>
+        BrowserWindow.getAllWindows()[0].webContents.send("studio:event", data),
+      {
+        type: "captions",
+        projectId: currentProject.id,
+        language: currentProject.language,
+        mode: "replace",
+        originals: currentProject.captions,
+        captions: [replacement],
+        speechRun: run,
+      },
+    );
+    await page
+      .waitForFunction(
+        () =>
+          document.querySelector('[aria-label="Source caption 1"]')?.value ===
+          "A complete new sentence.",
+      )
+      .catch(async (e) => {
+        console.error(
+          "Replacement diagnostic:",
+          await page.evaluate(() => document.body.innerText.slice(-1400)),
+          currentProject,
+        );
+        throw e;
+      });
+    assert.equal(await page.locator(".caption-row").count(), 1);
+    await page.getByRole("button", { name: "Undo", exact: true }).click();
+    assert.equal(await page.locator(".caption-row").count(), beforeCount);
+    assert.equal(
+      await page.getByLabel("Source caption 1", { exact: true }).inputValue(),
+      beforeText,
+    );
+    await page.getByRole("button", { name: "Redo", exact: true }).click();
+    assert.equal(
+      await page.getByLabel("Source caption 1", { exact: true }).inputValue(),
+      replacement.source,
+    );
+    await page.getByRole("button", { name: "Undo", exact: true }).click();
+    await page.getByLabel("Transcription import mode").selectOption("add");
+    await app.evaluate(
+      ({ BrowserWindow }, data) =>
+        BrowserWindow.getAllWindows()[0].webContents.send("studio:event", data),
+      {
+        type: "captions",
+        projectId: currentProject.id,
+        mode: "add",
+        captions: [replacement],
+      },
+    );
+    await page.waitForFunction(
+      (n) => document.querySelectorAll(".caption-row").length === n,
+      beforeCount + 1,
+    );
+    await page.getByRole("button", { name: "Undo", exact: true }).click();
+    console.log(
+      "PASS: explicit add/replace transcription imports with undo and redo",
     );
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.screenshot({ path: path.join(root, "verification.png") });

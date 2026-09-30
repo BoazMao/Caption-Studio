@@ -25,6 +25,15 @@ export const CaptionSchema = z
       .optional(),
   })
   .refine((c) => c.end > c.start, "Caption end must follow start");
+export const SpeechRunSchema = z.object({
+  id: z.string(),
+  createdAt: z.string(),
+  mode: z.enum(["transcription", "realignment"]),
+  raw: z.record(z.unknown()),
+  importError: z.string().optional(),
+  captions: z.array(CaptionSchema),
+});
+export type SpeechRun = z.infer<typeof SpeechRunSchema>;
 export const ProjectSchema = z
   .object({
     version: z.literal(1),
@@ -40,6 +49,7 @@ export const ProjectSchema = z
       .nullable(),
     language: z.string(),
     targetLanguage: z.string(),
+    speechRuns: z.array(SpeechRunSchema).optional(),
     captions: z.array(CaptionSchema),
   })
   .superRefine((p, ctx) => {

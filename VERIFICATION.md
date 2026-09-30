@@ -5,11 +5,11 @@ Tested on Windows x64 using Electron 44.4.5 and Node.js 24.19.0.
 | Check | Result |
 | --- | --- |
 | TypeScript (`tsc --noEmit`) | Passed |
-| Core automated tests | 15 passed, 0 failed |
+| Core automated tests | 20 passed, 0 failed |
 | Dependency audit | 0 known vulnerabilities at installation/audit time |
 | Real H.264/AAC video | Play, pause, seek and 30-fps frame stepping passed |
 | Waveform | Real FFmpeg PCM extraction and displayed peaks passed |
-| Timeline | Group drag, split, merge, clipboard shortcuts, bulk delete, undo/redo, overlap warnings and waveform overlay/zoom passed; one block row shows source until replaced by target text |
+| Timeline | Group drag, split, merge, clipboard shortcuts, bulk delete, undo/redo, icon-only overlap warnings with independent selection highlighting and waveform overlay/zoom passed; one block row shows source until replaced by target text |
 | Persistence | Unicode roundtrip, ordered concurrent writes and UI save/reopen passed |
 | Translation state | Stale marking, manual-edit protection, failure, retry and review passed |
 | Download | Real yt-dlp metadata and fresh local DASH download, separate audio/video merging, final-file import passed |
@@ -23,7 +23,7 @@ Tested on Windows x64 using Electron 44.4.5 and Node.js 24.19.0.
 
 The editor was launched and visually inspected from real Electron screenshots. Layout was adjusted so the video, linked text tracks, full-width timeline and compact task panel remain usable at the tested desktop size. Test-only native file dialogs are replaced by deterministic return values inside Playwright; the actual IPC, filesystem, media protocol and processing code runs unchanged.
 
-The source archive contains reproducible tests. `scripts/e2e.cjs` generates its own media fixture. `scripts/pipeline.cjs` requires the external assets documented in README. `node scripts/package-smoke.cjs` validates `release/win-unpacked/Caption Studio.exe` after packaging. WhisperX is now the default engine and provides a separate forced-alignment stage plus re-alignment of corrected source text. Tests cover preserved IDs/translations, stale result protection, missing word times, Chinese character import, and save/reopen. Legacy DTW project data remains readable.
+The source archive contains reproducible tests. `scripts/e2e.cjs` generates its own media fixture. `scripts/pipeline.cjs` requires the external assets documented in README. `node scripts/package-smoke.cjs` validates `release/win-unpacked/Caption Studio.exe` after packaging. WhisperX is now the default engine and provides a separate forced-alignment stage plus re-alignment of corrected source text. Tests cover preserved IDs/translations, stale result protection, exact sentence text, 50 ms padding and short gaps, genuine overlaps, missing word times, full raw archives, replacement/edit races, Chinese character import, and save/reopen. Legacy DTW project data remains readable.
 
 This workspace already contains the tools used for verification. Source-development paths are:
 

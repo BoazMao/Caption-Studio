@@ -216,6 +216,33 @@ const root = path.resolve(__dirname, ".."),
       console.log(
         "PASS: real WhisperX re-alignment preserves caption count and source text",
       );
+      const archiveFile = path.join(dir, "speech-archive.captionproj");
+      await app.evaluate(({ dialog }, file) => {
+        dialog.showSaveDialog = async () => ({
+          canceled: false,
+          filePath: file,
+        });
+      }, archiveFile);
+      await page.getByRole("button", { name: /Save project/ }).click();
+      await page.waitForFunction(() =>
+        document.body.innerText.includes("Project saved"),
+      );
+      const stored = JSON.parse(await fs.readFile(archiveFile, "utf8"));
+      assert.equal(stored.speechRuns.length, 2);
+      const first = stored.speechRuns[0];
+      const sentences = first.raw.alignments
+        .flatMap((x) => x.output.segments)
+        .filter((x) => x.text.trim());
+      assert.deepEqual(
+        first.captions.map((c) => c.source),
+        sentences.map((s) => s.text),
+      );
+      assert.ok(first.raw.transcription.segments.length);
+      assert.ok(sentences.some((s) => s.chars?.length));
+      assert.ok(stored.speechRuns[1].raw.correctedCaptions.length);
+      console.log(
+        "PASS: exact WhisperX sentence blocks and complete transcription/word/character archives saved to project",
+      );
     }
     await page
       .getByRole("button", { name: "Translate →", exact: true })

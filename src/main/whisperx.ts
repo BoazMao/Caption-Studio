@@ -1,6 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { Caption, Project } from "../shared/model";
+import type { Caption, Project, SpeechRun } from "../shared/model";
 import type { Settings } from "../shared/ipc";
 import { importWhisperX } from "../shared/whisperx";
 import { run } from "./jobs";
@@ -78,11 +78,27 @@ export async function whisperXJob(
     (data) => lines(data.toString("utf8")),
   );
   signal.throwIfAborted();
-  return p
-    ? importWhisperX(
-        JSON.parse(await readFile(output, "utf8")),
-        p.media!.duration,
-        originals,
-      )
-    : [];
+  if (!p) return { captions: [], speechRun: undefined };
+  const result = JSON.parse(await readFile(output, "utf8"));
+  let captions: Caption[] = [],
+    importError: string | undefined;
+  try {
+    captions = importWhisperX(
+      result,
+      p.media!.duration,
+      originals,
+      originals ? p.captions : [],
+    );
+  } catch (error) {
+    importError = error instanceof Error ? error.message : String(error);
+  }
+  const speechRun: SpeechRun = {
+    id: crypto.randomUUID(),
+    createdAt: new Date().toISOString(),
+    mode: originals ? "realignment" : "transcription",
+    raw: result.raw ?? result,
+    importError,
+    captions: structuredClone(captions),
+  };
+  return { captions, speechRun };
 }

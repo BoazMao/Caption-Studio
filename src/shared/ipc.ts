@@ -1,4 +1,4 @@
-import type { Project, Caption } from "./model";
+import type { Project, Caption, SpeechRun } from "./model";
 export type Settings = {
   ffmpeg: string;
   ffprobe: string;
@@ -27,9 +27,18 @@ export type Event =
   | { type: "job"; job: Job }
   | { type: "wave"; projectId: string; peaks: number[] }
   | { type: "media"; projectId: string; media: NonNullable<Project["media"]> }
-  | { type: "captions"; projectId: string; captions: Caption[] }
+  | {
+      type: "captions";
+      projectId: string;
+      captions: Caption[];
+      mode?: "replace" | "add";
+      originals?: Caption[];
+      speechRun?: SpeechRun;
+      language?: string;
+    }
   | {
       type: "aligned";
+      speechRun?: SpeechRun;
       projectId: string;
       language: string;
       originals: Caption[];
@@ -69,7 +78,10 @@ export type Requests = {
     output: { title: string; duration: number; uploader: string };
   };
   download: { input: { url: string; projectId: string }; output: string };
-  transcribe: { input: Project; output: string };
+  transcribe: {
+    input: Project | { project: Project; mode: "replace" | "add" };
+    output: string;
+  };
   realign: { input: { project: Project; ids: string[] }; output: string };
   checkSpeech: { input: void; output: string };
   translate: { input: Project; output: string };

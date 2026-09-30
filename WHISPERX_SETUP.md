@@ -26,7 +26,7 @@ NVIDIA acceleration requires a compatible driver, CUDA libraries and CUDA-enable
 
 ## Editing workflow
 
-**Transcribe** prepares audio, recognizes speech, and aligns it before importing captions. Progress and cancellation remain in the task panel. Missing or low-confidence alignment is marked **Check sync**; missing word times are not fabricated.
+**Transcribe** prepares audio, recognizes speech, and aligns it before importing captions. The importer uses each returned aligned sentence as one block, preserving its exact text. It does not cut at length, duration or pause thresholds. Long blocks remain available for manual splitting. Progress and cancellation remain in the task panel. Missing or low-confidence alignment is marked **Check sync**; missing word times are not fabricated.
 
 After correcting source text, select captions and click **Re-align selection**, or use **Re-align all**. Re-alignment uses the existing approximate time window with 0.5 seconds of context on each side. Large timing mistakes need a rough manual adjustment first. Results never overwrite source/timing edits made during the job. Target edits and review state are preserved. Source text changes still invalidate translation normally.
 
@@ -43,3 +43,11 @@ npm run test:pipeline
 ```
 
 The test uses `tiny.en`, real speech and forced alignment, re-alignment, then a mock translation endpoint. Warm the model cache before running if first-time downloads exceed the test timeout. This verifies integration, not translation quality or timing accuracy on all recordings.
+
+## Result preservation and padding
+
+Projects embed `speechRuns`: full returned transcription results, full per-input alignment results (including word/character details and additional fields), model/device/version metadata, and immutable imported caption snapshots. Re-alignment stores a separate run with its corrected source input. JSON-incompatible NaN/infinity values are retained as null. No new Chinese sentence detection is applied.
+
+Aligned sentence times receive 50 ms padding at each end, clipped to media boundaries. Adjacent non-overlapping sentences share short gaps so padding cannot introduce overlap. Actual overlapping speech remains unchanged and is flagged by the editor. Missing word times stay missing; unavailable sentence times use an explicitly flagged approximate input window for review. Unusable results are retained with an import error and do not replace existing captions.
+
+When captions exist, choose **Replace captions** or **Add captions** before transcription. Both changes support Undo/Redo. If captions change during replacement, results are archived but current edits are preserved. Raw archives increase project size and remain out of SRT exports. Previously saved projects cannot recover raw results that were discarded by earlier app versions; transcribe again to create the new archives.

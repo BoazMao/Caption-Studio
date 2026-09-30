@@ -466,7 +466,7 @@ async function setup() {
     return jobs.start("Alignment", async (signal, update) => {
       const dir = await tempDir();
       try {
-        const captions = await whisperXJob(
+        const { captions, speechRun } = await whisperXJob(
           p,
           config,
           dir,
@@ -478,6 +478,7 @@ async function setup() {
         signal.throwIfAborted();
         emit({
           type: "aligned",
+          speechRun,
           projectId: p.id,
           language: p.language,
           originals,
@@ -489,7 +490,9 @@ async function setup() {
     });
   });
   handle("transcribe", (input) => {
-    const p = project(input);
+    const p = project("project" in input ? input.project : input);
+    const mode =
+      "project" in input ? z.enum(["replace", "add"]).parse(input.mode) : "add";
     if (!p.media) throw Error("Open a video first");
     trustedFile(p.media.path);
     if (settings.speechEngine === "whisperx") {
@@ -497,7 +500,7 @@ async function setup() {
       return jobs.start("Transcription", async (signal, update) => {
         const dir = await tempDir();
         try {
-          const captions = await whisperXJob(
+          const { captions, speechRun } = await whisperXJob(
             p,
             config,
             dir,
@@ -506,7 +509,15 @@ async function setup() {
             update,
           );
           signal.throwIfAborted();
-          emit({ type: "captions", projectId: p.id, captions });
+          emit({
+            type: "captions",
+            projectId: p.id,
+            captions,
+            mode,
+            originals: p.captions,
+            language: p.language,
+            speechRun,
+          });
         } finally {
           await rm(dir, { recursive: true, force: true });
         }
@@ -573,7 +584,14 @@ async function setup() {
           p.media!.duration,
         );
         signal.throwIfAborted();
-        emit({ type: "captions", projectId: p.id, captions });
+        emit({
+          type: "captions",
+          projectId: p.id,
+          captions,
+          mode,
+          originals: p.captions,
+          language: p.language,
+        });
       } finally {
         await rm(dir, { recursive: true, force: true });
       }

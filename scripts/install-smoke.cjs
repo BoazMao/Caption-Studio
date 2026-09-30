@@ -24,59 +24,65 @@ const profile = path.join(root, ".tools/test-work/installer-profile");
       );
     const page = await app.firstWindow();
     await page.getByRole("button", { name: "Settings", exact: false }).click();
-    await page.evaluate(() => {
-      window.installJob = null;
-      window.studio.onEvent((e) => {
-        if (e.type === "job" && e.job.kind === "WhisperX installation")
-          window.installJob = e.job;
+    if (!process.env.TEST_INSTALL_REUSE) {
+      await page.evaluate(() => {
+        window.installJob = null;
+        window.studio.onEvent((e) => {
+          if (e.type === "job" && e.job.kind === "WhisperX installation")
+            window.installJob = e.job;
+        });
       });
-    });
-    await page
-      .getByRole("button", { name: "Install WhisperX", exact: true })
-      .click();
-    await page.waitForFunction(() => window.installJob);
-    const initial = await page.evaluate(() => window.installJob);
-    assert.equal(initial.state, "running", initial.message);
-    const id = initial.id;
-    assert.equal(
-      await page.evaluate(() => window.studio.call("installSpeech")),
-      id,
-    );
-    assert.equal(
       await page
-        .getByRole("button", { name: "Installing WhisperX…", exact: true })
-        .isDisabled(),
-      true,
-    );
-    await page.screenshot({
-      path: path.join(root, ".tools/test-work/installer-settings.png"),
-    });
-    let previous = "";
-    const end = Date.now() + 15 * 60 * 1000;
-    while (Date.now() < end) {
-      const job = await page.evaluate(() => window.installJob);
-      if (job.message !== previous) {
-        console.log(job.message);
-        previous = job.message;
+        .getByRole("button", { name: "Install WhisperX", exact: true })
+        .click();
+      await page.waitForFunction(() => window.installJob);
+      const initial = await page.evaluate(() => window.installJob);
+      assert.equal(initial.state, "running", initial.message);
+      const id = initial.id;
+      assert.equal(
+        await page.evaluate(() => window.studio.call("installSpeech")),
+        id,
+      );
+      assert.equal(
+        await page
+          .getByRole("button", { name: "Installing WhisperX…", exact: true })
+          .isDisabled(),
+        true,
+      );
+      await page.screenshot({
+        path: path.join(root, ".tools/test-work/installer-settings.png"),
+      });
+      let previous = "";
+      const end = Date.now() + 15 * 60 * 1000;
+      while (Date.now() < end) {
+        const job = await page.evaluate(() => window.installJob);
+        if (job.message !== previous) {
+          console.log(job.message);
+          previous = job.message;
+        }
+        if (job.state !== "running") {
+          assert.equal(job.state, "done", job.message);
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 3000));
       }
-      if (job.state !== "running") {
-        assert.equal(job.state, "done", job.message);
-        break;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 3000));
+      assert.equal(
+        (await page.evaluate(() => window.installJob)).state,
+        "done",
+      );
     }
-    assert.equal((await page.evaluate(() => window.installJob)).state, "done");
     const settings = await page.evaluate(() => window.studio.call("settings"));
     assert.ok(settings.whisperxPython.startsWith(profile));
     assert.equal(settings.whisperxDevice, "cpu");
     assert.equal(settings.speechEngine, "whisperx");
-    await page
-      .locator("footer")
-      .filter({
-        hasText:
-          "WhisperX installed and selected. Models download on first transcription.",
-      })
-      .waitFor();
+    if (!process.env.TEST_INSTALL_REUSE)
+      await page
+        .locator("footer")
+        .filter({
+          hasText:
+            "WhisperX installed and selected. Models download on first transcription.",
+        })
+        .waitFor();
     await page.screenshot({
       path: path.join(root, ".tools/test-work/installer-ready.png"),
     });
@@ -87,8 +93,17 @@ const profile = path.join(root, ".tools/test-work/installer-profile");
       window.studio.call("settings"),
     );
     assert.equal(restored.whisperxPython, settings.whisperxPython);
+    await reopened.getByRole("button", { name: /^⚙ Settings$/ }).click();
+    assert.equal(
+      await reopened
+        .getByRole("textbox", { name: /WhisperX Python executable/ })
+        .inputValue(),
+      settings.whisperxPython,
+    );
     console.log(
-      "PASS: Settings installation, duplicate prevention, automatic selection, private Python and reopen persistence",
+      process.env.TEST_INSTALL_REUSE
+        ? "PASS: installed private runtime and Settings UI survive reopen"
+        : "PASS: Settings installation, duplicate prevention, automatic selection, private Python and reopen persistence",
     );
   } finally {
     await app.close();

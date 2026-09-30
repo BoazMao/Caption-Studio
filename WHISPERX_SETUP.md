@@ -64,4 +64,4 @@ When captions exist, choose **Replace captions** or **Add captions** before tran
 
 ## Installer verification
 
-`npm run test:install` runs an opt-in network test that performs an actual installation in an isolated ignored test profile, checks duplicate prevention and automatic selection, and reopens the app to verify persistence. Build the app first. Unit tests cover failed verification, cancellation during dependency installation, preservation of the previous runtime, and invalid manifest paths.
+`npm run test:install` runs an opt-in network test that performs an actual installation in an isolated ignored test profile, checks duplicate prevention and automatic selection, and reopens the app to verify persistence. Build the app first. After a successful installation test, set `TEST_INSTALL_REUSE=1` to repeat just the runtime-selection and Settings/reopen checks without downloading again. Unit tests cover failed verification, cancellation during dependency installation, preservation of the previous runtime, and invalid manifest paths.

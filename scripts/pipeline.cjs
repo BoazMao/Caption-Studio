@@ -98,7 +98,18 @@ const root = path.resolve(__dirname, ".."),
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
   const base = "http://127.0.0.1:" + server.address().port;
   const app = await electron.launch({
-    args: [root, "--user-data-dir=" + path.join(dir, "profile-" + Date.now())],
+    ...(process.env.TEST_PACKAGED
+      ? {
+          executablePath: path.join(
+            root,
+            "release/win-unpacked/Raccoon Studio.exe",
+          ),
+        }
+      : {}),
+    args: [
+      ...(process.env.TEST_PACKAGED ? [] : [root]),
+      "--user-data-dir=" + path.join(dir, "profile-" + Date.now()),
+    ],
     env: Object.fromEntries(
       Object.entries(process.env).filter(([k]) => k !== "ELECTRON_RUN_AS_NODE"),
     ),
@@ -116,10 +127,14 @@ const root = path.resolve(__dirname, ".."),
         });
       },
       {
-        ffmpeg,
-        ffprobe: require("ffprobe-static").path,
-        ytdlp: path.join(assets, "yt-dlp.exe"),
-        whisper: path.join(assets, "whisper/Release/whisper-cli.exe"),
+        ...(process.env.TEST_PACKAGED
+          ? {}
+          : {
+              ffmpeg,
+              ffprobe: require("ffprobe-static").path,
+              ytdlp: path.join(assets, "yt-dlp.exe"),
+              whisper: path.join(assets, "whisper/Release/whisper-cli.exe"),
+            }),
         modelPath: path.join(assets, "ggml-tiny.en.bin"),
         speechEngine: process.env.TEST_WHISPERX ? "whisperx" : "whispercpp",
         whisperxPython: path.join(root, ".tools/whisperx/Scripts/python.exe"),

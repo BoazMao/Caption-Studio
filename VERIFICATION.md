@@ -5,7 +5,9 @@ Tested on Windows x64 using Electron 44.4.5 and Node.js 24.19.0.
 | Check | Result |
 | --- | --- |
 | TypeScript (`tsc --noEmit`) | Passed |
-| Core automated tests | 22 passed, 0 failed |
+| Core automated tests | 24 passed, 0 failed |
+| Bundled download/fallback tools | Checksum-verified yt-dlp 2026.08.19 and whisper.cpp v1.7.6 CPU runtime; packaged metadata/download/merge/import, real tiny.en fallback transcription with DTW, translation retry/review, separate SRT and cancellation passed |
+| WhisperX size measurement | Current Python 3.12.14 / PyTorch 2.8.0+cpu installation plus base Python files: 2,320,171,526 bytes unpacked and 609,875,259 bytes ZIP-compressed (level 6), excluding downloaded recognition/alignment model caches. This measures a future bundle's approximate size, not a validated relocatable runtime. |
 | Dependency audit | 0 known vulnerabilities at installation/audit time |
 | Real H.264/AAC video | Play, pause, seek and 30-fps frame stepping passed |
 | Waveform | Real FFmpeg PCM extraction and displayed peaks passed |

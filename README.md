@@ -23,7 +23,7 @@ The current language choices are **English and Chinese**, with English-to-Chines
 4. Open the extracted `win-unpacked` folder and run **Raccoon Studio.exe**.
 5. Open **Settings** to configure the dependencies for the features you want to use.
 
-The release includes Electron, FFmpeg, FFprobe, the WhisperX worker, and WhisperX setup scripts. **Node.js is not required to run the downloaded app.** The Windows executable is unsigned. A `SHA256SUMS.txt` file is provided with each release to verify the ZIP.
+The v0.1.0 release includes Electron, FFmpeg, FFprobe, the WhisperX worker, and WhisperX setup scripts. New builds also bundle yt-dlp and whisper.cpp with its runtime DLLs. **Node.js is not required to run the downloaded app.** The Windows executable is unsigned. A `SHA256SUMS.txt` file is provided with each release to verify the ZIP.
 
 ## Dependencies
 
@@ -36,7 +36,8 @@ You can open videos, edit captions, save projects, and export subtitles using th
 | 64-bit Python 3.10–3.13                | Running WhisperX locally                                                                                  | No                                                         |
 | WhisperX 3.8.6 and Transformers 4.57.6 | Speech recognition and forced alignment                                                                   | No; installed by the included setup script                 |
 | Recognition and alignment models       | Recognizing speech and matching words to audio                                                            | No; downloaded on first use                                |
-| yt-dlp                                 | Video URL metadata preview and download                                                                   | No; needed only for URL imports                            |
+| yt-dlp                                 | Video URL metadata preview and download                                                                   | Bundled in new builds; external in v0.1.0                  |
+| whisper.cpp CPU fallback               | Optional transcription engine without Python                                                              | Bundled in new builds; GGML models remain external         |
 | OpenAI-compatible endpoint and model   | AI translation                                                                                            | No; configure your provider and its API key where required |
 
 ### Local transcription: WhisperX
@@ -60,11 +61,11 @@ First use needs internet access to download recognition, speech-detection, sente
 
 CPU mode does not require CUDA. NVIDIA GPU mode requires a compatible driver, CUDA libraries, and CUDA-enabled PyTorch; see [WhisperX setup, GPU, and offline instructions](WHISPERX_SETUP.md). GPU operation has not been benchmarked in this project.
 
-The optional **whisper.cpp legacy fallback** requires `whisper-cli.exe`, its accompanying DLLs, and a compatible `ggml-<model>.bin` model. These are separate from WhisperX and are not needed for its default workflow. See the [whisper.cpp releases](https://github.com/ggml-org/whisper.cpp/releases); the legacy integration was tested with v1.7.6.
+New builds include the optional **whisper.cpp legacy fallback** (`whisper-cli.exe` v1.7.6 and its CPU runtime DLLs). Choose it in Settings and select a compatible `ggml-<model>.bin` model; models are not bundled. This engine is independent of Python and WhisperX. v0.1.0 users must select an external executable from the [whisper.cpp releases](https://github.com/ggml-org/whisper.cpp/releases).
 
 ### URL imports: yt-dlp
 
-Download the Windows `yt-dlp.exe` from the [official yt-dlp releases](https://github.com/yt-dlp/yt-dlp/releases). In **Settings**, select its executable path. FFmpeg for merging is already included in the app.
+New builds include yt-dlp 2026.08.19 and select it automatically. You may select a custom executable in **Settings**. For v0.1.0, download `yt-dlp.exe` from the [official yt-dlp releases](https://github.com/yt-dlp/yt-dlp/releases) and select its path. FFmpeg for merging is already included.
 
 Use **Video URL** to preview metadata, then **Download & import**. The final merged video is imported automatically. Some sites additionally require a JavaScript runtime or authentication; the app does not manage cookies or DRM.
 
@@ -111,6 +112,7 @@ To rebuild the unpackaged app:
 
 ```powershell
 npm run build
+npm run prepare:tools
 npx electron-builder --win dir
 ```
 
@@ -121,5 +123,7 @@ Development checks are `npm run typecheck`, `npm test`, and `npm run test:e2e`. 
 ## License and references
 
 Raccoon Studio is [MIT licensed](LICENSE). Bundled FFmpeg is GPL-3.0-or-later; its license and build information are included under `resources/tools`. See [FFmpeg's licensing information](https://ffmpeg.org/legal.html).
+
+New builds include whisper.cpp under MIT and the standalone yt-dlp executable under GPLv3+, with upstream source references, license texts, and third-party notices in `resources/tools`. The build downloads pinned upstream binaries and verifies their SHA-256 hashes; binaries and models are not committed to this repository.
 
 [Subtitle Edit](https://github.com/SubtitleEdit/subtitleedit) and [SmartSub](https://github.com/buxuku/SmartSub) informed the media/job separation and transcription/translation workflows. The interface and implementation are original.

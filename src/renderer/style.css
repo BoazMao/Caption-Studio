@@ -919,6 +919,9 @@ footer {
   max-height: 250px;
   overflow: auto;
 }
+.settings input[type="checkbox"] {
+  width: auto;
+}
 
 /* Shared time coordinates: captions sit over the full-height waveform. */
 .timeline-inner {
@@ -937,7 +940,7 @@ footer {
   pointer-events: none;
 }
 .source-lane {
-  top: 38%;
+  top: 50%;
 }
 .target-lane {
   top: 66%;
@@ -956,10 +959,13 @@ footer {
   background: #416e5bd9;
 }
 .lane .clip.overlap {
-  border-color: #ffc267;
   overflow: visible;
 }
-.clip > span:not(.handle):not(.overlap-warning) { display: block; overflow: hidden; text-overflow: ellipsis; }
+.clip > span:not(.handle):not(.overlap-warning) {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .overlap-warning {
   position: absolute;
   right: 0;

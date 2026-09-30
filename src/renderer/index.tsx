@@ -14,6 +14,7 @@ import {
 import type { Bridge, Job, Settings } from "../shared/ipc";
 import "./style.css";
 import { overlappingCaptions, pasteCaptions } from "../shared/editing";
+import { applyRealignment, applyTranscription } from "../shared/whisperx";
 declare global {
   interface Window {
     studio: Bridge;
@@ -53,6 +54,9 @@ function App() {
     }>(),
     [zoom, setZoom] = useState(1),
     [filter, setFilter] = useState("all"),
+    [transcribeMode, setTranscribeMode] = useState<"replace" | "add">(
+      "replace",
+    ),
     [historyVersion, setHistoryVersion] = useState(0),
     [saved, setSaved] = useState(""),
     [recovery, setRecovery] = useState<Project | null>(null),
@@ -161,6 +165,7 @@ function App() {
     busy = running.some((j) =>
       [
         "Transcription",
+        "Alignment",
         "Translation",
         "Download video",
         "Inspect video",
@@ -361,6 +366,20 @@ function App() {
       }
       if (e.projectId !== current.current.id) return;
       if (e.type === "wave") setPeaks(e.peaks);
+      if (e.type === "aligned" && e.language === current.current.language) {
+        commit((prev) => ({
+          ...prev,
+          captions: applyRealignment(prev.captions, e.originals, e.captions),
+          speechRuns: e.speechRun
+            ? [...(prev.speechRuns || []), e.speechRun]
+            : prev.speechRuns,
+        }));
+        setNotice(
+          e.speechRun?.importError
+            ? `Alignment output retained; could not update captions: ${e.speechRun.importError}`
+            : "Alignment finished; edited captions were preserved. Check any sync warnings.",
+        );
+      }
       if (e.type === "media") {
         const next = {
           ...current.current,
@@ -384,13 +403,22 @@ function App() {
         });
       }
       if (e.type === "captions") {
-        commit((prev) => ({
-          ...prev,
-          captions: [...prev.captions, ...e.captions].sort(
-            (a, b) => a.start - b.start,
-          ),
-        }));
-        setNotice(`${e.captions.length} captions added`);
+        if (e.language && e.language !== current.current.language) return;
+        const result = applyTranscription(
+          current.current,
+          e.captions,
+          e.mode || "add",
+          e.originals || [],
+          e.speechRun,
+        );
+        commit(result.project);
+        setNotice(
+          e.speechRun?.importError
+            ? `WhisperX output retained; could not import captions: ${e.speechRun.importError}`
+            : result.blocked
+              ? "Captions changed during transcription; your edits were preserved. New results are retained in the project. Undo edits or transcribe again to replace."
+              : `${e.captions.length} captions ${e.mode === "replace" ? "replaced (Undo available)" : "added"}`,
+        );
       }
       if (
         e.type === "translation" &&
@@ -803,6 +831,46 @@ function App() {
               Windows when saved.
             </p>
           </div>
+          <label>
+            Speech engine
+            <select
+              value={settings.speechEngine}
+              onChange={(e) =>
+                setSettings({
+                  ...settings,
+                  speechEngine: e.target.value as Settings["speechEngine"],
+                })
+              }
+            >
+              <option value="whisperx">WhisperX (forced alignment)</option>
+              <option value="whispercpp">whisper.cpp (legacy fallback)</option>
+            </select>
+          </label>
+          <label>
+            WhisperX device
+            <select
+              value={settings.whisperxDevice}
+              onChange={(e) =>
+                setSettings({
+                  ...settings,
+                  whisperxDevice: e.target.value as "cpu" | "cuda",
+                })
+              }
+            >
+              <option value="cpu">CPU</option>
+              <option value="cuda">NVIDIA GPU (CUDA)</option>
+            </select>
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={settings.whisperxOffline}
+              onChange={(e) =>
+                setSettings({ ...settings, whisperxOffline: e.target.checked })
+              }
+            />
+            Use cached models only (offline)
+          </label>
           {(
             [
               "ffmpeg",
@@ -810,57 +878,88 @@ function App() {
               "ytdlp",
               "whisper",
               "modelPath",
+              "whisperxPython",
+              "whisperxModel",
+              "whisperxCache",
               "endpoint",
               "model",
               "apiKey",
             ] as const
-          ).map((key) => (
-            <label key={key}>
-              {
+          )
+            .filter(
+              (key) =>
+                settings.speechEngine === "whispercpp" ||
+                !["whisper", "modelPath"].includes(key),
+            )
+            .map((key) => (
+              <label key={key}>
                 {
-                  ffmpeg: "FFmpeg executable",
-                  ffprobe: "FFprobe executable",
-                  ytdlp: "yt-dlp executable",
-                  whisper: "whisper.cpp executable",
-                  modelPath: "Whisper GGML model",
-                  endpoint: "API base URL (ending /v1)",
-                  model: "Translation model ID",
-                  apiKey: "API key",
-                }[key]
-              }
-              <div className="field">
-                <input
-                  type={key === "apiKey" ? "password" : "text"}
-                  value={settings[key]}
-                  onChange={(e) =>
-                    setSettings({ ...settings, [key]: e.target.value })
-                  }
-                />
-                {[
-                  "ffmpeg",
-                  "ffprobe",
-                  "ytdlp",
-                  "whisper",
-                  "modelPath",
-                ].includes(key) && (
-                  <button
-                    aria-label={"Browse " + key}
-                    onClick={() =>
-                      void attempt(async () => {
-                        const path = await api.call(
-                          "pick",
-                          key === "modelPath" ? "model" : "exe",
-                        );
-                        if (path) setSettings({ ...settings, [key]: path });
-                      })
+                  {
+                    ffmpeg: "FFmpeg executable",
+                    ffprobe: "FFprobe executable",
+                    ytdlp: "yt-dlp executable",
+                    whisper: "whisper.cpp executable",
+                    modelPath: "Whisper GGML model",
+                    whisperxPython: "WhisperX Python executable",
+                    whisperxModel:
+                      "WhisperX model (e.g. medium, large-v3, or local directory)",
+                    whisperxCache: "WhisperX model cache folder",
+                    endpoint: "API base URL (ending /v1)",
+                    model: "Translation model ID",
+                    apiKey: "API key",
+                  }[key]
+                }
+                <div className="field">
+                  <input
+                    type={key === "apiKey" ? "password" : "text"}
+                    value={settings[key]}
+                    onChange={(e) =>
+                      setSettings({ ...settings, [key]: e.target.value })
                     }
-                  >
-                    …
-                  </button>
-                )}
-              </div>
-            </label>
-          ))}
+                  />
+                  {[
+                    "ffmpeg",
+                    "ffprobe",
+                    "ytdlp",
+                    "whisper",
+                    "whisperxPython",
+                    "modelPath",
+                  ].includes(key) && (
+                    <button
+                      aria-label={"Browse " + key}
+                      onClick={() =>
+                        void attempt(async () => {
+                          const path = await api.call(
+                            "pick",
+                            key === "modelPath" ? "model" : "exe",
+                          );
+                          if (path) setSettings({ ...settings, [key]: path });
+                        })
+                      }
+                    >
+                      …
+                    </button>
+                  )}
+                </div>
+              </label>
+            ))}
+          <p>
+            WhisperX requires Python with WhisperX installed. First
+            transcription downloads the selected model and the language
+            alignment model into the cache. Existing GGML files cannot be used
+            by WhisperX.
+          </p>
+          <button
+            onClick={() =>
+              void attempt(async () => {
+                await api.call("configure", settings);
+                await api.call("checkSpeech", undefined);
+                setNotice("Checking WhisperX; see background tasks");
+              })
+            }
+          >
+            Check WhisperX setup
+          </button>
           <button
             className="primary"
             onClick={() =>
@@ -1004,11 +1103,27 @@ function App() {
                 <option value="all">All captions</option>
                 <option value="review">Needs review</option>
               </select>
+              {p.captions.length > 0 && (
+                <select
+                  aria-label="Transcription import mode"
+                  value={transcribeMode}
+                  disabled={busy}
+                  onChange={(e) =>
+                    setTranscribeMode(e.target.value as "replace" | "add")
+                  }
+                >
+                  <option value="replace">Replace captions</option>
+                  <option value="add">Add captions</option>
+                </select>
+              )}
               <button
                 disabled={!p.media || busy}
                 onClick={() =>
                   void attempt(async () => {
-                    await api.call("transcribe", p);
+                    await api.call("transcribe", {
+                      project: p,
+                      mode: transcribeMode,
+                    });
                   })
                 }
               >
@@ -1137,7 +1252,9 @@ function App() {
                         title={
                           c.alignment.needsReview
                             ? "Source or timing changed, or token alignment is uncertain. Check against audio."
-                            : "Timed from Whisper DTW audio-aligned tokens"
+                            : c.alignment.method === "whisperx"
+                              ? "Timed with WhisperX forced alignment"
+                              : "Timed from Whisper DTW audio-aligned tokens"
                         }
                       >
                         {c.alignment.needsReview
@@ -1231,6 +1348,7 @@ function App() {
             <button
               disabled={!past.current.length}
               onClick={undo}
+              aria-label="Undo"
               title="Ctrl+Z"
             >
               ↶
@@ -1238,6 +1356,7 @@ function App() {
             <button
               disabled={!future.current.length}
               onClick={redo}
+              aria-label="Redo"
               title="Ctrl+Shift+Z"
             >
               ↷
@@ -1271,6 +1390,29 @@ function App() {
               onClick={() => void attempt(pasteSelected)}
             >
               Paste
+            </button>
+            <button
+              disabled={busy || !selection.length}
+              onClick={() =>
+                void attempt(async () => {
+                  await api.call("realign", { project: p, ids: selection });
+                })
+              }
+            >
+              Re-align selection
+            </button>
+            <button
+              disabled={busy || !p.captions.length}
+              onClick={() =>
+                void attempt(async () => {
+                  await api.call("realign", {
+                    project: p,
+                    ids: p.captions.map((c) => c.id),
+                  });
+                })
+              }
+            >
+              Re-align all
             </button>
             <small aria-live="polite">
               {
@@ -1349,13 +1491,17 @@ function App() {
                 <div
                   role="button"
                   tabIndex={0}
-                  aria-label={"Timeline caption " + c.source}
+                  aria-label={
+                    "Timeline caption " +
+                    (c.target.trim() ? c.target : c.source)
+                  }
                   key={c.id}
                   aria-pressed={selection.includes(c.id)}
                   title={overlaps.get(c.id)}
                   aria-description={overlaps.get(c.id)}
                   className={
                     "clip " +
+                    (c.target.trim() ? "target " + c.status + " " : "") +
                     (selection.includes(c.id) ? "chosen " : "") +
                     (overlaps.has(c.id) ? "overlap" : "")
                   }
@@ -1381,7 +1527,9 @@ function App() {
                     className="handle left"
                     onPointerDown={(e) => pointerDown(e, c.id, "start")}
                   />
-                  <span>{c.source || "New caption"}</span>
+                  <span>
+                    {c.target.trim() ? c.target : c.source || "New caption"}
+                  </span>
                   {overlaps.has(c.id) && (
                     <span
                       className="overlap-warning"
@@ -1399,52 +1547,6 @@ function App() {
                 </div>
               ))}
             </div>
-            <div className="lane target-lane">
-              {sorted.map((c) => (
-                <div
-                  key={c.id}
-                  role="button"
-                  tabIndex={0}
-                  aria-label={"Translation timeline caption " + c.source}
-                  title={overlaps.get(c.id)}
-                  aria-description={overlaps.get(c.id)}
-                  aria-pressed={selection.includes(c.id)}
-                  onPointerDown={(e) => pointerDown(e, c.id, "move")}
-                  onPointerMove={pointerMove}
-                  onPointerUp={pointerUp}
-                  onPointerCancel={pointerUp}
-                  onClick={(e) => e.stopPropagation()}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      choose(c.id, e);
-                      seek(c.start);
-                    }
-                  }}
-                  className={
-                    "clip target " +
-                    c.status +
-                    (selection.includes(c.id) ? " chosen" : "") +
-                    (overlaps.has(c.id) ? " overlap" : "")
-                  }
-                  style={{
-                    left: `${(c.start / duration) * 100}%`,
-                    width: `${((c.end - c.start) / duration) * 100}%`,
-                  }}
-                >
-                  <span>{c.target || "Untranslated"}</span>
-                  {overlaps.has(c.id) && (
-                    <span
-                      className="overlap-warning"
-                      role="img"
-                      aria-label={overlaps.get(c.id)}
-                      title={overlaps.get(c.id)}
-                    >
-                      !
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
             <div
               className="playhead"
               style={{ left: `${(time / duration) * 100}%` }}
@@ -1455,10 +1557,10 @@ function App() {
         </div>
         <div className="timeline-legend">
           <span>
-            <i /> Source
+            <i /> Source until translated
           </span>
           <span>
-            <i /> Translation
+            <i /> Translation when available
           </span>
           <span>
             Drag to move · Drag edges to trim · Click waveform to seek

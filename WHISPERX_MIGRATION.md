@@ -1,5 +1,9 @@
 # WhisperX migration plan
 
+## Implementation status
+
+Implemented: default WhisperX adapter, cancellable transcription/forced alignment, corrected-text re-alignment, versioned result validation, legacy project compatibility, settings checks and offline cache controls. See [WHISPERX_SETUP.md](WHISPERX_SETUP.md) for installation. The legacy whisper.cpp fallback remains available while broader timing benchmarks and GPU validation are pending.
+
 ## Decision
 
 Move Caption Studio's default local transcription and alignment workflow to WhisperX. The current whisper.cpp DTW token timing is not accurate enough for the intended subtitle workflow. Keep whisper.cpp available during migration so existing setups remain usable; remove or demote it only after WhisperX passes the Windows and English/Chinese checks below.

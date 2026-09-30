@@ -1,29 +1,29 @@
-# Verification — 29 September 2026
+# Verification — 30 September 2026
 
 Tested on Windows x64 using Electron 44.4.5 and Node.js 24.19.0.
 
 | Check | Result |
 | --- | --- |
 | TypeScript (`tsc --noEmit`) | Passed |
-| Core automated tests | 12 passed, 0 failed |
+| Core automated tests | 20 passed, 0 failed |
 | Dependency audit | 0 known vulnerabilities at installation/audit time |
 | Real H.264/AAC video | Play, pause, seek and 30-fps frame stepping passed |
 | Waveform | Real FFmpeg PCM extraction and displayed peaks passed |
-| Timeline | Group drag, split, merge, clipboard shortcuts, bulk delete, undo/redo, overlap warnings and waveform overlay/zoom passed |
+| Timeline | Group drag, split, merge, clipboard shortcuts, bulk delete, undo/redo, icon-only overlap warnings with independent selection highlighting and waveform overlay/zoom passed; one block row shows source until replaced by target text |
 | Persistence | Unicode roundtrip, ordered concurrent writes and UI save/reopen passed |
 | Translation state | Stale marking, manual-edit protection, failure, retry and review passed |
 | Download | Real yt-dlp metadata and fresh local DASH download, separate audio/video merging, final-file import passed |
-| Local speech | Real whisper.cpp v1.7.6 CPU binary plus tiny.en model transcribed the public JFK sample with DTW token alignment; aligned cue start was imported into the editor |
+| Local speech | Real WhisperX 3.8.6 CPU transcription and forced alignment of the JFK sample using tiny.en passed, including cached offline mode and Electron caption import/re-alignment. Multilingual tiny plus Chinese alignment also completed on synthetic Mandarin speech. GPU and broader natural-speech timing accuracy were not benchmarked. Legacy whisper.cpp validation remains available. |
 | Translation transport | OpenAI-compatible local mock endpoint passed; no live AI provider or translation quality claim |
 | Export | Separate source and target SRT files verified on disk |
 | Cancellation | Real child-process tree and in-flight HTTP request cancellation passed |
 | Compatible preview | FFmpeg H.264/AAC conversion and playback of the resulting file passed |
-| Packaged application | Fresh profile and saved bare `ffmpeg`/`ffprobe` settings selected bundled tools automatically; ASAR/preload launch, real video playback and waveform passed |
-| Portable executable | Built successfully, launched directly and inspected through the Windows desktop UI |
+| Packaged application | Fresh profile and saved bare `ffmpeg`/`ffprobe` settings selected bundled tools automatically; ASAR/preload launch, bundled WhisperX worker/runtime setup check, real video playback and waveform passed |
+| Portable executable | Previous build only; not rebuilt for the WhisperX migration. Use the current unpacked app. |
 
 The editor was launched and visually inspected from real Electron screenshots. Layout was adjusted so the video, linked text tracks, full-width timeline and compact task panel remain usable at the tested desktop size. Test-only native file dialogs are replaced by deterministic return values inside Playwright; the actual IPC, filesystem, media protocol and processing code runs unchanged.
 
-The source archive contains reproducible tests. `scripts/e2e.cjs` generates its own media fixture. `scripts/pipeline.cjs` requires the external assets documented in README. `node scripts/package-smoke.cjs` validates `release/win-unpacked/Caption Studio.exe` after packaging. Alignment uses Whisper's DTW token timestamps during transcription; manually rewritten text is marked for sync review, not automatically forced-aligned again.
+The source archive contains reproducible tests. `scripts/e2e.cjs` generates its own media fixture. `scripts/pipeline.cjs` requires the external assets documented in README. `node scripts/package-smoke.cjs` validates `release/win-unpacked/Caption Studio.exe` after packaging. WhisperX is now the default engine and provides a separate forced-alignment stage plus re-alignment of corrected source text. Tests cover preserved IDs/translations, stale result protection, exact sentence text, 50 ms padding and short gaps, genuine overlaps, missing word times, full raw archives, replacement/edit races, Chinese character import, and save/reopen. Legacy DTW project data remains readable.
 
 This workspace already contains the tools used for verification. Source-development paths are:
 
@@ -32,7 +32,9 @@ FFmpeg:      node_modules\ffmpeg-static\ffmpeg.exe
 FFprobe:     node_modules\ffprobe-static\bin\win32\x64\ffprobe.exe
 yt-dlp:      .tools\test-assets\yt-dlp.exe
 whisper.cpp: .tools\test-assets\whisper\Release\whisper-cli.exe
-Model:       .tools\test-assets\ggml-tiny.en.bin
+Legacy model: .tools\test-assets\ggml-tiny.en.bin
+WhisperX:    .tools\whisperx\Scripts\python.exe
+Test cache:  .tools\test-assets\whisperx-models
 ```
 
-These paths are relative to the project folder. The portable executable includes FFmpeg and FFprobe and selects them automatically. Use **Browse** for yt-dlp, whisper.cpp and a model. The test tools/model under `.tools/test-assets` are ignored by Git and are not included in the source ZIP or portable executable. Fresh installations must provide yt-dlp, whisper.cpp and a compatible Whisper model as described in README. Translation additionally needs a configured provider/model and, where required, an API key.
+These paths are relative to the project folder. The unpacked app includes FFmpeg, FFprobe and the WhisperX worker. It discovers this checkout's Python environment automatically; Python and model caches are not bundled or committed. Fresh installations need the environment from [WhisperX setup](WHISPERX_SETUP.md), internet access for first model use (default medium), and yt-dlp for URL download. CPU tests used tiny models, not the default medium. Translation additionally needs a configured provider/model and, where required, an API key. No live-provider translation quality test was performed.

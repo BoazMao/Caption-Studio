@@ -121,6 +121,12 @@ const root = path.resolve(__dirname, ".."),
         ytdlp: path.join(assets, "yt-dlp.exe"),
         whisper: path.join(assets, "whisper/Release/whisper-cli.exe"),
         modelPath: path.join(assets, "ggml-tiny.en.bin"),
+        speechEngine: process.env.TEST_WHISPERX ? "whisperx" : "whispercpp",
+        whisperxPython: path.join(root, ".tools/whisperx/Scripts/python.exe"),
+        whisperxModel: "tiny.en",
+        whisperxDevice: "cpu",
+        whisperxCache: path.join(assets, "whisperx-models"),
+        whisperxOffline: !!process.env.TEST_WHISPERX_OFFLINE,
         endpoint: base + "/v1",
         model: "test-compatible",
         apiKey: "",
@@ -174,7 +180,9 @@ const root = path.resolve(__dirname, ".."),
     assert.ok((await page.locator(".alignment-state.aligned").count()) >= 1);
     assert.ok(+(await page.getByLabel("Start 1").inputValue()) > 0.1);
     console.log(
-      "PASS: real whisper.cpp tiny.en transcription with automatic DTW alignment:",
+      process.env.TEST_WHISPERX
+        ? "PASS: real WhisperX tiny.en transcription with forced alignment:"
+        : "PASS: real whisper.cpp tiny.en transcription with automatic DTW alignment:",
       source.slice(0, 100),
     );
     await page.waitForFunction(() =>
@@ -185,6 +193,57 @@ const root = path.resolve(__dirname, ".."),
       ),
     );
     failNext = true;
+    if (process.env.TEST_WHISPERX) {
+      const count = await page.locator(".caption-row").count();
+      await page
+        .getByRole("button", { name: "Re-align all", exact: true })
+        .click();
+      await page.waitForFunction(
+        () =>
+          [...document.querySelectorAll(".task")].some(
+            (e) =>
+              e.textContent.includes("Alignment") &&
+              e.textContent.includes("done"),
+          ),
+        {},
+        { timeout: 120000 },
+      );
+      assert.equal(await page.locator(".caption-row").count(), count);
+      assert.equal(
+        await page.getByLabel("Source caption 1", { exact: true }).inputValue(),
+        source,
+      );
+      console.log(
+        "PASS: real WhisperX re-alignment preserves caption count and source text",
+      );
+      const archiveFile = path.join(dir, "speech-archive.captionproj");
+      await app.evaluate(({ dialog }, file) => {
+        dialog.showSaveDialog = async () => ({
+          canceled: false,
+          filePath: file,
+        });
+      }, archiveFile);
+      await page.getByRole("button", { name: /Save project/ }).click();
+      await page.waitForFunction(() =>
+        document.body.innerText.includes("Project saved"),
+      );
+      const stored = JSON.parse(await fs.readFile(archiveFile, "utf8"));
+      assert.equal(stored.speechRuns.length, 2);
+      const first = stored.speechRuns[0];
+      const sentences = first.raw.alignments
+        .flatMap((x) => x.output.segments)
+        .filter((x) => x.text.trim());
+      assert.deepEqual(
+        first.captions.map((c) => c.source),
+        sentences.map((s) => s.text),
+      );
+      assert.ok(first.raw.transcription.segments.length);
+      assert.ok(sentences.some((s) => s.chars?.length));
+      assert.ok(stored.speechRuns[1].raw.correctedCaptions.length);
+      console.log(
+        "PASS: exact WhisperX sentence blocks and complete transcription/word/character archives saved to project",
+      );
+    }
     await page
       .getByRole("button", { name: "Translate →", exact: true })
       .click();

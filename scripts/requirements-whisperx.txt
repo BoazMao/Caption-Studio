@@ -1,0 +1,2 @@
+whisperx==3.8.6
+transformers==4.57.6

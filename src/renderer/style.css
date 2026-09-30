@@ -118,13 +118,9 @@ header {
   margin-top: 6px;
 }
 .logo {
-  font-size: 33px;
-  color: #ace9ce;
-  background: #263e36;
   width: 42px;
   height: 42px;
-  text-align: center;
-  border-radius: 11px;
+  object-fit: contain;
 }
 .project-title {
   flex: 1;

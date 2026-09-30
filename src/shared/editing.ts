@@ -2,7 +2,7 @@ import { z } from "zod";
 import { CaptionSchema, type Caption } from "./model";
 
 export const ClipboardSchema = z.object({
-  format: z.literal("caption-studio/1"),
+  format: z.enum(["raccoon-studio/1", "caption-studio/1"]),
   targetLanguage: z.string(),
   captions: z.array(CaptionSchema).min(1).max(10000),
 });

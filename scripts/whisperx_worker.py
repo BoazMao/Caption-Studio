@@ -1,4 +1,4 @@
-"""Caption Studio's local worker. stdout protocol: STUDIO:<JSON>, one line/event."""
+"""Raccoon Studio's local worker. stdout protocol: STUDIO:<JSON>, one line/event."""
 import gc
 import importlib.metadata
 import json

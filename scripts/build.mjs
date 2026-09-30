@@ -25,3 +25,4 @@ await build({
 });
 await copyFile("src/renderer/index.html", "dist/index.html");
 await copyFile("scripts/whisperx_worker.py", "dist/whisperx_worker.py");
+await copyFile("assets/Raccoon.ico", "dist/Raccoon.ico");

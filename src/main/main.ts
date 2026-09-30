@@ -19,6 +19,7 @@ import type { Settings, Requests, Event } from "../shared/ipc";
 import { Jobs, run } from "./jobs";
 import { whisperXJob } from "./whisperx";
 import { readProject, writeProject } from "./storage";
+import { migrateProfile } from "./profile";
 protocol.registerSchemesAsPrivileged([
   {
     scheme: "media",
@@ -257,7 +258,7 @@ async function setup() {
     const r = await dialog.showOpenDialog(window, {
       properties: ["openFile"],
       filters: [
-        { name: "Caption Studio project", extensions: ["captionproj"] },
+        { name: "Raccoon Studio project", extensions: ["captionproj"] },
       ],
     });
     if (r.canceled) return null;
@@ -289,7 +290,7 @@ async function setup() {
       const r = await dialog.showSaveDialog(window, {
         defaultPath: p.name + ".captionproj",
         filters: [
-          { name: "Caption Studio project", extensions: ["captionproj"] },
+          { name: "Raccoon Studio project", extensions: ["captionproj"] },
         ],
       });
       if (r.canceled) return null;
@@ -748,6 +749,13 @@ async function setup() {
   });
 }
 app.whenReady().then(async () => {
+  app.setAppUserModelId("studio.raccoon.desktop");
+  if (!app.commandLine.hasSwitch("user-data-dir")) {
+    await migrateProfile(
+      path.join(app.getPath("appData"), "caption-studio"),
+      data(),
+    );
+  }
   await mkdir(data(), { recursive: true });
   protocol.handle("media", async (request) => {
     const file = allowed.get(new URL(request.url).pathname.slice(1));
@@ -802,7 +810,10 @@ app.whenReady().then(async () => {
     minWidth: 1040,
     minHeight: 720,
     backgroundColor: "#101418",
-    title: "Caption Studio",
+    title: "Raccoon Studio",
+    icon: app.isPackaged
+      ? path.join(process.resourcesPath, "icons", "Raccoon.ico")
+      : path.join(__dirname, "Raccoon.ico"),
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,

@@ -22,6 +22,13 @@ import { readProject, writeProject } from "./storage";
 import { migrateProfile } from "./profile";
 import { toolDefaults, restoreTool, persistTool } from "./tools";
 import { installWhisperX, managedPython } from "./install-whisperx";
+import {
+  restoreWaveform,
+  sameWaveformSource,
+  saveWaveform,
+  waveformSource,
+} from "./waveform";
+import { MAX_WAVEFORM_PEAKS, WAVEFORM_SAMPLE_RATE } from "../shared/waveform";
 protocol.registerSchemesAsPrivileged([
   {
     scheme: "media",
@@ -294,15 +301,41 @@ async function setup() {
   });
   handle("wave", (input) => {
     const file = trustedFile(input.path);
+    z.string().uuid().parse(input.requestId);
+    z.number().finite().nonnegative().parse(input.duration);
+    const ffmpeg = settings.ffmpeg;
     return jobs.start("Waveform", async (signal, update) => {
+      const source = await waveformSource(file, input.duration);
+      signal.throwIfAborted();
+      const cached = await restoreWaveform(input.cached, source);
+      signal.throwIfAborted();
+      if (
+        cached &&
+        sameWaveformSource(source, await waveformSource(file, input.duration))
+      ) {
+        signal.throwIfAborted();
+        emit({
+          type: "wave",
+          projectId: input.projectId,
+          requestId: input.requestId,
+          ...cached,
+          reused: true,
+        });
+        update(100, "Saved waveform loaded");
+        return;
+      }
       const peaks: number[] = [];
       let left: Buffer = Buffer.alloc(0),
         peak = 0,
-        count = 0;
+        count = 0,
+        overflow = false;
       // Millisecond detail for editing; bound IPC/memory for very long media.
-      const bucket = Math.max(8, Math.ceil((input.duration * 8000) / 2000000));
+      const bucket = Math.max(
+        8,
+        Math.ceil((input.duration * WAVEFORM_SAMPLE_RATE) / MAX_WAVEFORM_PEAKS),
+      );
       await run(
-        settings.ffmpeg,
+        ffmpeg,
         [
           "-v",
           "error",
@@ -312,7 +345,7 @@ async function setup() {
           "-ac",
           "1",
           "-ar",
-          "8000",
+          String(WAVEFORM_SAMPLE_RATE),
           "-f",
           "s16le",
           "-progress",
@@ -327,7 +360,8 @@ async function setup() {
           for (let i = 0; i < size; i += 2) {
             peak = Math.max(peak, Math.abs(chunk.readInt16LE(i)) / 32768);
             if (++count >= bucket) {
-              peaks.push(peak);
+              if (peaks.length < MAX_WAVEFORM_PEAKS) peaks.push(peak);
+              else overflow = true;
               peak = 0;
               count = 0;
             }
@@ -336,8 +370,28 @@ async function setup() {
         },
       );
       if (count) peaks.push(peak);
+      if (overflow || peaks.length > MAX_WAVEFORM_PEAKS)
+        throw Error(
+          "Audio is longer than the recorded media duration. Reopen the video to inspect it again.",
+        );
       signal.throwIfAborted();
-      emit({ type: "wave", projectId: input.projectId, peaks });
+      if (
+        !sameWaveformSource(source, await waveformSource(file, input.duration))
+      )
+        throw Error(
+          "Media changed during waveform analysis. Relink the video and try again.",
+        );
+      update(99, "Compressing waveform");
+      const waveform = await saveWaveform(peaks, source, bucket);
+      signal.throwIfAborted();
+      emit({
+        type: "wave",
+        projectId: input.projectId,
+        requestId: input.requestId,
+        peaks,
+        waveform,
+        reused: false,
+      });
     });
   });
   handle("preview", async (raw) => {

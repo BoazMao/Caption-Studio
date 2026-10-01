@@ -15,6 +15,7 @@ import type { Bridge, Job, Settings } from "../shared/ipc";
 import "./style.css";
 import { overlappingCaptions, pasteCaptions } from "../shared/editing";
 import { applyRealignment, applyTranscription } from "../shared/whisperx";
+import { waveformMatchesMedia } from "../shared/waveform";
 declare global {
   interface Window {
     studio: Bridge;
@@ -272,6 +273,27 @@ function App() {
         .map((c) => (c.id === active.id ? merge(c, next) : c)),
     }));
   }
+  async function prepareMedia(next: Project) {
+    const media = next.media;
+    if (!media) return;
+    const requestId = crypto.randomUUID();
+    latestWave.current = requestId;
+    const url = await api.call("url", media.previewPath || media.path);
+    if (
+      latestWave.current !== requestId ||
+      current.current.id !== next.id ||
+      current.current.media?.path !== media.path
+    )
+      return;
+    setVideoUrl(url);
+    await api.call("wave", {
+      projectId: next.id,
+      requestId,
+      path: media.path,
+      duration: media.duration,
+      cached: next.waveform,
+    });
+  }
   async function load(next: Project, path?: string) {
     const sourceLanguage = ["zh", "Chinese"].includes(next.language)
       ? "zh"
@@ -293,6 +315,7 @@ function App() {
     video.current?.pause();
     if (video.current) video.current.currentTime = 0;
     switching.current = true;
+    latestWave.current = "";
     current.current = next;
     setP(next);
     setFile(path);
@@ -304,16 +327,7 @@ function App() {
     setVideoUrl("");
     setSaved("");
     if (next.media) {
-      await attempt(async () => {
-        setVideoUrl(
-          await api.call("url", next.media!.previewPath || next.media!.path),
-        );
-        latestWave.current = await api.call("wave", {
-          projectId: next.id,
-          path: next.media!.path,
-          duration: next.media!.duration,
-        });
-      });
+      await attempt(() => prepareMedia(next));
     }
     switching.current = false;
   }
@@ -381,7 +395,30 @@ function App() {
         return;
       }
       if (e.projectId !== current.current.id) return;
-      if (e.type === "wave") setPeaks(e.peaks);
+      if (e.type === "wave") {
+        if (
+          e.requestId !== latestWave.current ||
+          !waveformMatchesMedia(e.waveform, current.current.media)
+        )
+          return;
+        setPeaks(e.peaks);
+        if (!e.reused) {
+          const attach = (snapshot: Project): Project =>
+            snapshot.id === e.projectId &&
+            waveformMatchesMedia(e.waveform, snapshot.media)
+              ? { ...snapshot, waveform: e.waveform }
+              : snapshot;
+          // Derived media data is independent of undoable caption edits.
+          past.current = past.current.map(attach);
+          future.current = future.current.map(attach);
+          if (drag.current) drag.current.before = attach(drag.current.before);
+          const next = attach(current.current);
+          current.current = next;
+          setP(next);
+          setSaved("Unsaved changes");
+        }
+        return;
+      }
       if (e.type === "aligned" && e.language === current.current.language) {
         commit((prev) => ({
           ...prev,
@@ -405,18 +442,15 @@ function App() {
               .pop()
               ?.replace(/\.[^.]+$/, "") || "Video",
           media: e.media,
+          waveform: waveformMatchesMedia(current.current.waveform, e.media)
+            ? current.current.waveform
+            : undefined,
         };
+        latestWave.current = "";
+        if (!waveformMatchesMedia(current.current.waveform, e.media))
+          setPeaks([]);
         commit(next);
-        void attempt(async () => {
-          setVideoUrl(
-            await api.call("url", e.media.previewPath || e.media.path),
-          );
-          latestWave.current = await api.call("wave", {
-            projectId: e.projectId,
-            path: e.media.path,
-            duration: e.media.duration,
-          });
-        });
+        void attempt(() => prepareMedia(next));
       }
       if (e.type === "captions") {
         if (e.language && e.language !== current.current.language) return;

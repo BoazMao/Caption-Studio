@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { WaveformSchema } from "./waveform";
 export const CaptionSchema = z
   .object({
     id: z.string().min(1),
@@ -50,6 +51,7 @@ export const ProjectSchema = z
     language: z.string(),
     targetLanguage: z.string(),
     speechRuns: z.array(SpeechRunSchema).optional(),
+    waveform: WaveformSchema.optional().catch(undefined),
     captions: z.array(CaptionSchema),
   })
   .superRefine((p, ctx) => {

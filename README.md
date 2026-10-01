@@ -80,7 +80,7 @@ Translation sends caption text to the configured endpoint. Transcription does no
 4. **Translate and review:** Choose the target language, translate, correct the results, and mark captions reviewed. Source changes make existing translations stale.
 5. **Save and export:** Save a `.captionproj` project, then export separate source and translated SRT files.
 
-Project files retain both text tracks, timing, review status, and speech results. Videos remain at their referenced paths; use **Relink video** if you move them. Autosave recovery is separate from explicit project saves. Existing Caption Studio projects and settings remain compatible.
+Project files retain both text tracks, timing, review status, speech results, and a compressed waveform. New builds reuse the saved waveform on reopen when the media path, size, modification time, and duration match, instead of decoding audio again. Older projects and missing or damaged waveform caches are analyzed once and saved with the next project save or autosave. Videos remain at their referenced paths; use **Relink video** if you move them. Autosave recovery is separate from explicit project saves. Existing Caption Studio projects and settings remain compatible.
 
 Review timing and translations before final export. Export uses the current text, including any unreviewed or stale translations. One project, one video, and one target language are supported at a time.
 

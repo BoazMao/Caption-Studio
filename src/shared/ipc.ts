@@ -1,4 +1,5 @@
 import type { Project, Caption, SpeechRun } from "./model";
+import type { SavedWaveform } from "./waveform";
 export type Settings = {
   ffmpeg: string;
   ffprobe: string;
@@ -27,7 +28,14 @@ export type Event =
   | { type: "speechInstalled"; python: string }
   | { type: "closing" }
   | { type: "job"; job: Job }
-  | { type: "wave"; projectId: string; peaks: number[] }
+  | {
+      type: "wave";
+      projectId: string;
+      requestId: string;
+      peaks: number[];
+      waveform: SavedWaveform;
+      reused: boolean;
+    }
   | { type: "media"; projectId: string; media: NonNullable<Project["media"]> }
   | {
       type: "captions";
@@ -72,7 +80,13 @@ export type Requests = {
   media: { input: { projectId: string; path: string }; output: string };
   compatible: { input: Project; output: string };
   wave: {
-    input: { projectId: string; path: string; duration: number };
+    input: {
+      projectId: string;
+      requestId: string;
+      path: string;
+      duration: number;
+      cached?: SavedWaveform;
+    };
     output: string;
   };
   preview: {

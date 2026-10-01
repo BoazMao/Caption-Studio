@@ -33,7 +33,22 @@ const root = path.resolve(__dirname, ".."),
     { stdio: "ignore", windowsHide: true },
   );
   const app = await electron.launch({
-    args: [root, "--user-data-dir=" + path.join(work, "profile")],
+    ...(process.env.TEST_PACKAGED
+      ? {
+          executablePath: path.join(
+            root,
+            "release/win-unpacked/Raccoon Studio.exe",
+          ),
+        }
+      : {}),
+    args: [
+      ...(process.env.TEST_PACKAGED ? [] : [root]),
+      "--user-data-dir=" +
+        path.join(
+          work,
+          process.env.TEST_PACKAGED ? "packaged-profile" : "profile",
+        ),
+    ],
     env: Object.fromEntries(
       Object.entries(process.env).filter(([k]) => k !== "ELECTRON_RUN_AS_NODE"),
     ),
@@ -51,10 +66,13 @@ const root = path.resolve(__dirname, ".."),
     await page.evaluate(
       async ({ ffmpeg, ffprobe }) => {
         const s = await window.studio.call("settings");
-        await window.studio.call("configure", { ...s, ffmpeg, ffprobe });
+        await window.studio.call("configure", {
+          ...s,
+          ...(ffmpeg ? { ffmpeg, ffprobe } : {}),
+        });
       },
       {
-        ffmpeg: require("ffmpeg-static"),
+        ffmpeg: process.env.TEST_PACKAGED ? null : require("ffmpeg-static"),
         ffprobe: require("ffprobe-static").path,
       },
     );
@@ -201,6 +219,9 @@ const root = path.resolve(__dirname, ".."),
       saved.captions[0].source,
       "A real video, an editable caption.",
     );
+    assert.equal(saved.waveform.encoding, "deflate-u16le");
+    assert.equal(saved.waveform.source.path, fixture);
+    assert.ok(saved.waveform.peakCount > 0);
     await page
       .getByLabel("Source caption 1", { exact: true })
       .fill("Changed source");
@@ -211,6 +232,21 @@ const root = path.resolve(__dirname, ".."),
         filePaths: [file],
       });
     }, projectFile);
+    const playbackSettings = await page.evaluate(
+      async (missingFFmpeg) => {
+        const settings = await window.studio.call("settings");
+        window.waveEvents = [];
+        window.studio.onEvent((e) => {
+          if (e.type === "wave") window.waveEvents.push(e);
+        });
+        await window.studio.call("configure", {
+          ...settings,
+          ffmpeg: missingFFmpeg,
+        });
+        return settings;
+      },
+      path.join(work, "missing-ffmpeg.exe"),
+    );
     await page
       .getByRole("button", { name: "Open project", exact: true })
       .click();
@@ -220,6 +256,62 @@ const root = path.resolve(__dirname, ".."),
         "A real video, an editable caption.",
     );
     await page.waitForFunction(() => !document.querySelector(".wave-label"));
+    assert.equal(
+      await page.evaluate(() => window.waveEvents.at(-1)?.reused),
+      true,
+    );
+    await page.evaluate(
+      (settings) => window.studio.call("configure", settings),
+      playbackSettings,
+    );
+    const restoredWave = await page
+      .locator("canvas")
+      .evaluate((el) => el.toDataURL());
+    await app.evaluate(
+      ({ BrowserWindow }, event) => {
+        BrowserWindow.getAllWindows()[0].webContents.send(
+          "studio:event",
+          event,
+        );
+      },
+      {
+        type: "wave",
+        projectId: saved.id,
+        requestId: "00000000-0000-4000-8000-000000000000",
+        peaks: [0],
+        waveform: saved.waveform,
+        reused: false,
+      },
+    );
+    await page.evaluate(
+      () =>
+        new Promise((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(resolve)),
+        ),
+    );
+    assert.equal(
+      await page.locator("canvas").evaluate((el) => el.toDataURL()),
+      restoredWave,
+      "An obsolete waveform job must not replace the current waveform",
+    );
+    await fs.writeFile(
+      projectFile,
+      JSON.stringify({
+        ...saved,
+        waveform: { ...saved.waveform, data: "corrupt-cache" },
+      }),
+    );
+    await page.evaluate(() => {
+      window.waveEvents = [];
+    });
+    await page
+      .getByRole("button", { name: "Open project", exact: true })
+      .click();
+    await page.waitForFunction(() => window.waveEvents.some((e) => !e.reused));
+    await page.waitForFunction(() => !document.querySelector(".wave-label"));
+    console.log(
+      "PASS: saved waveform reopens without FFmpeg, obsolete results are ignored, corrupt cache regenerates",
+    );
     // Exercise timing edits through actual pointer and keyboard input.
     const before = Number(
       await page.getByLabel("Start 1", { exact: true }).inputValue(),

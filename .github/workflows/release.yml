@@ -2,7 +2,7 @@ name: Windows release
 
 on:
   push:
-    branches: [codex/release-v0.1.1]
+    branches: [codex/release-v0.1.2]
     tags: ["v*"]
   workflow_dispatch:
     inputs:
@@ -49,6 +49,13 @@ jobs:
           npm run prepare:tools
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           node node_modules/electron-builder/cli.js --win dir --x64 --publish never
+      - name: Verify full distributed editor workflow
+        shell: pwsh
+        env:
+          TEST_PACKAGED: "1"
+        run: |
+          npm run test:e2e
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: Smoke test distributed app
         shell: pwsh
         run: |
@@ -116,13 +123,19 @@ jobs:
           @'
           Raccoon Studio is a Windows desktop subtitle editor with local WhisperX transcription and forced alignment, waveform caption editing, linked source/translation tracks, review, project recovery, and separate SRT export.
 
+          **New in 0.1.2:**
+          - Install WhisperX from Settings with one click; no separate Python installation is required.
+          - Waveforms are saved inside projects and reused on reopen when the media matches.
+          - Invalid or corrupt waveform caches regenerate automatically; older projects still open.
+          - Obsolete waveform job results are ignored when switching media or projects.
+
           **Run:** Download the Windows x64 ZIP, extract the entire archive, and launch `win-unpacked/Raccoon Studio.exe`. Keep all extracted files together. Node.js is not needed to run this build. The Windows executable is unsigned.
 
           **Included:** Electron application, FFmpeg, FFprobe, yt-dlp, whisper.cpp CPU fallback with its DLLs, and the WhisperX worker. The fallback requires a separately selected GGML model.
 
           **External requirements:** For WhisperX transcription, open Settings and click Install WhisperX. The app downloads a private Python 3.12.14 and CPU WhisperX 3.8.6 environment, verifies it and selects it automatically. Allow at least 6.5 GB free disk space; no separate Python installation is needed. Custom/GPU environments remain selectable. Follow the included WHISPERX_SETUP.md. Recognition and alignment models download on first use; default ASR is medium on CPU. Model caches and Python are not bundled. Translation requires an OpenAI-compatible endpoint, an exact model ID, and an API key where required.
 
-          **Validation:** 27 caption/persistence/alignment/profile/tool-selection/installer tests, real-video Electron workflow checks, and distributed-app tool/playback/waveform/icon smoke checks. GPU operation and live-provider translation quality were not benchmarked. Check aligned captions and translations before final export.
+          **Validation:** 31 unit tests and development/distributed Electron workflow checks, including saved waveform reuse with FFmpeg unavailable, corrupt-cache regeneration, obsolete-result rejection, playback, timing edits, and project persistence. Integration tests use an eight-second generated H.264/AAC video, automated file dialogs, and controlled result events for race/import checks; application IPC, media decoding, and file operations run normally. Bundled tools, title, and icon are smoke-tested. Long-video performance, personal footage, GPU operation, and live-provider translation quality were not benchmarked.
 
           SHA256SUMS.txt verifies the Windows ZIP. FFmpeg licensing information is included under resources/tools.
           '@ | Set-Content -LiteralPath .tools/release-notes.md -Encoding utf8

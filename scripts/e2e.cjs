@@ -105,11 +105,8 @@ const root = path.resolve(__dirname, ".."),
     await page.waitForFunction(
       () => document.querySelector("video")?.readyState >= 2,
     );
-    await page.waitForFunction(
-      () =>
-        document.body.innerText.includes("Waveform") &&
-        document.body.innerText.includes("done"),
-    );
+    // Inspection can finish before audio analysis; wait for rendered peaks.
+    await page.waitForFunction(() => !document.querySelector(".wave-label"));
     const sourceLanguage = page.getByLabel("Source language");
     const targetLanguage = page.getByLabel("Target language");
     assert.deepEqual(await sourceLanguage.locator("option").allTextContents(), [

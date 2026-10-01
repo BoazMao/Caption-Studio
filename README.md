@@ -37,7 +37,7 @@ You can open videos, edit captions, save projects, and export subtitles using th
 | Recognition and alignment models       | Recognizing speech and matching words to audio                                                            | No; downloaded on first use                                       |
 | yt-dlp                                 | Video URL metadata preview and download                                                                   | Yes, since v0.1.1                                                 |
 | whisper.cpp CPU fallback               | Optional transcription engine without Python                                                              | Yes, since v0.1.1; GGML models remain external                    |
-| OpenAI-compatible endpoint and model   | AI translation                                                                                            | No; configure your provider and its API key where required        |
+
 
 ### Local transcription: WhisperX
 
